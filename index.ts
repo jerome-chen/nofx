@@ -183,10 +183,13 @@ function calculateEMA(values: number[], period: number): number | null {
     return null;
   }
   let ema =
-    values.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+    values
+      .slice(0, period)
+      .reduce((sum, value) => sum + value, 0) / period;
   const multiplier = 2 / (period + 1);
   for (let index = period; index < values.length; index++) {
-    ema = (values[index] - ema) * multiplier + ema;
+    const current = values[index]!;
+    ema = (current - ema) * multiplier + ema;
   }
   return Number.isFinite(ema) ? ema : null;
 }
@@ -198,7 +201,9 @@ function calculateRSI(values: number[], period: number): number | null {
   let gainSum = 0;
   let lossSum = 0;
   for (let index = 1; index <= period; index++) {
-    const change = values[index] - values[index - 1];
+    const current = values[index]!;
+    const previous = values[index - 1]!;
+    const change = current - previous;
     if (change > 0) {
       gainSum += change;
     } else {
@@ -208,7 +213,9 @@ function calculateRSI(values: number[], period: number): number | null {
   let avgGain = gainSum / period;
   let avgLoss = lossSum / period;
   for (let index = period + 1; index < values.length; index++) {
-    const change = values[index] - values[index - 1];
+    const current = values[index]!;
+    const previous = values[index - 1]!;
+    const change = current - previous;
     const gain = change > 0 ? change : 0;
     const loss = change < 0 ? -change : 0;
     avgGain = ((avgGain * (period - 1)) + gain) / period;
@@ -230,13 +237,14 @@ function calculateATR(candles: CandleData[], period: number): number | null {
   }
   const trueRanges: number[] = [];
   for (let index = 0; index < candles.length; index++) {
-    const candle = candles[index];
+    const candle = candles[index]!;
     const highLow = candle.high - candle.low;
     if (index === 0) {
       trueRanges.push(highLow);
       continue;
     }
-    const prevClose = candles[index - 1].close;
+    const previous = candles[index - 1]!;
+    const prevClose = previous.close;
     const range = Math.max(
       highLow,
       Math.abs(candle.high - prevClose),
@@ -251,7 +259,11 @@ function calculateATR(candles: CandleData[], period: number): number | null {
     trueRanges.slice(0, period).reduce((sum, value) => sum + value, 0) /
     period;
   for (let index = period; index < trueRanges.length; index++) {
-    atr = ((atr * (period - 1)) + trueRanges[index]) / period;
+    const current = trueRanges[index];
+    if (typeof current !== "number" || Number.isNaN(current)) {
+      continue;
+    }
+    atr = ((atr * (period - 1)) + current) / period;
   }
   return Number.isFinite(atr) ? atr : null;
 }
@@ -320,8 +332,8 @@ async function fetchMarketFeatures(): Promise<MarketFeatures> {
   const rsi = calculateRSI(closeSeries, 14);
   const atr = calculateATR(candles, 14);
 
-  const latest = candles[candles.length - 1];
-  const previous = candles.length > 1 ? candles[candles.length - 2] : undefined;
+  const latest = candles[candles.length - 1]!;
+  const previous = candles.length > 1 ? candles[candles.length - 2]! : undefined;
 
   const timestamp = latest.closeTime
     ? new Date(latest.closeTime).toISOString()
