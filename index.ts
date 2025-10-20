@@ -177,6 +177,9 @@ async function fetchMarketFeatures(): Promise<MarketFeatures> {
   }, 64);
 
   const { result } = context as { result: Record<string, unknown> };
+  if (process.env.DEBUG_FEATURES === "true") {
+    console.debug("Raw indicator result", result);
+  }
 
   const emaFast = extractLatest(result, "emaFast");
   const emaSlow = extractLatest(result, "emaSlow");
