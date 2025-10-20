@@ -110,19 +110,150 @@ const pineTS = new PineTS(
   CONFIG.lookback
 );
 
-function extractLatest(result: Record<string, unknown>, key: string): number | null {
-  const series = result?.[key] as unknown;
-  if (Array.isArray(series)) {
-    for (let i = series.length - 1; i >= 0; i--) {
-      const candidate = series[i];
-      if (typeof candidate === "number" && Number.isFinite(candidate)) {
-        return candidate;
-      }
+interface CandleData {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  openTime?: number;
+  closeTime?: number;
+}
+
+function buildChronologicalCandles(source: any): CandleData[] {
+  const openSeries = source.open as Array<number | undefined> | undefined;
+  const highSeries = source.high as Array<number | undefined> | undefined;
+  const lowSeries = source.low as Array<number | undefined> | undefined;
+  const closeSeries = source.close as Array<number | undefined> | undefined;
+  const volumeSeries = source.volume as Array<number | undefined> | undefined;
+  const openTimeSeries = source.openTime as Array<number | undefined> | undefined;
+  const closeTimeSeries = source.closeTime as Array<number | undefined> | undefined;
+
+  const length = Math.min(
+    openSeries?.length ?? 0,
+    highSeries?.length ?? 0,
+    lowSeries?.length ?? 0,
+    closeSeries?.length ?? 0,
+    volumeSeries?.length ?? 0
+  );
+
+  const candles: CandleData[] = [];
+  for (let index = length - 1; index >= 0; index--) {
+    const open = openSeries?.[index];
+    const high = highSeries?.[index];
+    const low = lowSeries?.[index];
+    const close = closeSeries?.[index];
+    if (
+      typeof open !== "number" ||
+      typeof high !== "number" ||
+      typeof low !== "number" ||
+      typeof close !== "number" ||
+      !Number.isFinite(open) ||
+      !Number.isFinite(high) ||
+      !Number.isFinite(low) ||
+      !Number.isFinite(close)
+    ) {
+      continue;
     }
-  } else if (typeof series === "number" && Number.isFinite(series)) {
-    return series;
+    const volume = volumeSeries?.[index];
+    const openTime = openTimeSeries?.[index];
+    const closeTime = closeTimeSeries?.[index];
+    candles.push({
+      open,
+      high,
+      low,
+      close,
+      volume:
+        typeof volume === "number" && Number.isFinite(volume) ? volume : 0,
+      openTime:
+        typeof openTime === "number" && Number.isFinite(openTime)
+          ? openTime
+          : undefined,
+      closeTime:
+        typeof closeTime === "number" && Number.isFinite(closeTime)
+          ? closeTime
+          : undefined,
+    });
   }
-  return null;
+  return candles;
+}
+
+function calculateEMA(values: number[], period: number): number | null {
+  if (values.length < period) {
+    return null;
+  }
+  let ema =
+    values.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+  const multiplier = 2 / (period + 1);
+  for (let index = period; index < values.length; index++) {
+    ema = (values[index] - ema) * multiplier + ema;
+  }
+  return Number.isFinite(ema) ? ema : null;
+}
+
+function calculateRSI(values: number[], period: number): number | null {
+  if (values.length <= period) {
+    return null;
+  }
+  let gainSum = 0;
+  let lossSum = 0;
+  for (let index = 1; index <= period; index++) {
+    const change = values[index] - values[index - 1];
+    if (change > 0) {
+      gainSum += change;
+    } else {
+      lossSum -= change;
+    }
+  }
+  let avgGain = gainSum / period;
+  let avgLoss = lossSum / period;
+  for (let index = period + 1; index < values.length; index++) {
+    const change = values[index] - values[index - 1];
+    const gain = change > 0 ? change : 0;
+    const loss = change < 0 ? -change : 0;
+    avgGain = ((avgGain * (period - 1)) + gain) / period;
+    avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+  }
+  if (avgLoss === 0) {
+    if (avgGain === 0) {
+      return 50;
+    }
+    return 100;
+  }
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+function calculateATR(candles: CandleData[], period: number): number | null {
+  if (candles.length < period + 1) {
+    return null;
+  }
+  const trueRanges: number[] = [];
+  for (let index = 0; index < candles.length; index++) {
+    const candle = candles[index];
+    const highLow = candle.high - candle.low;
+    if (index === 0) {
+      trueRanges.push(highLow);
+      continue;
+    }
+    const prevClose = candles[index - 1].close;
+    const range = Math.max(
+      highLow,
+      Math.abs(candle.high - prevClose),
+      Math.abs(candle.low - prevClose)
+    );
+    trueRanges.push(range);
+  }
+  if (trueRanges.length < period) {
+    return null;
+  }
+  let atr =
+    trueRanges.slice(0, period).reduce((sum, value) => sum + value, 0) /
+    period;
+  for (let index = period; index < trueRanges.length; index++) {
+    atr = ((atr * (period - 1)) + trueRanges[index]) / period;
+  }
+  return Number.isFinite(atr) ? atr : null;
 }
 
 function computeTrendBias(
@@ -162,68 +293,57 @@ function formatNumber(value: number | null, digits = 2): string {
 }
 
 async function fetchMarketFeatures(): Promise<MarketFeatures> {
-  const context = await pineTS.run(($: any) => {
-    const emaFast = $.ta.ema($.data.close, 9);
-    const emaSlow = $.ta.ema($.data.close, 21);
-    const rsi = $.ta.rsi($.data.close, 14);
-    const atr = $.ta.atr($.data.high, $.data.low, $.data.close, 14);
-
+  const candles = buildChronologicalCandles(pineTS as any);
+  if (candles.length === 0) {
+    const now = new Date().toISOString();
     return {
-      emaFast,
-      emaSlow,
-      rsi,
-      atr,
+      symbol: CONFIG.dataSymbol,
+      timeframe: CONFIG.timeframe,
+      timestamp: now,
+      close: null,
+      open: null,
+      high: null,
+      low: null,
+      volume: null,
+      emaFast: null,
+      emaSlow: null,
+      emaTrendBias: "NEUTRAL",
+      rsi: null,
+      atr: null,
+      priceChangePct: null,
     };
-  }, 64);
-
-  const { result } = context as { result: Record<string, unknown> };
-  if (process.env.DEBUG_FEATURES === "true") {
-    console.debug("Raw indicator result", result);
   }
 
-  const emaFast = extractLatest(result, "emaFast");
-  const emaSlow = extractLatest(result, "emaSlow");
-  const rsi = extractLatest(result, "rsi");
-  const atr = extractLatest(result, "atr");
+  const closeSeries = candles.map((candle) => candle.close);
+  const emaFast = calculateEMA(closeSeries, 9);
+  const emaSlow = calculateEMA(closeSeries, 21);
+  const rsi = calculateRSI(closeSeries, 14);
+  const atr = calculateATR(candles, 14);
 
-  const closeSeries = (pineTS as any).close as number[] | undefined;
-  const openSeries = (pineTS as any).open as number[] | undefined;
-  const highSeries = (pineTS as any).high as number[] | undefined;
-  const lowSeries = (pineTS as any).low as number[] | undefined;
-  const volumeSeries = (pineTS as any).volume as number[] | undefined;
-  const closeTimes = (pineTS as any).closeTime as number[] | undefined;
+  const latest = candles[candles.length - 1];
+  const previous = candles.length > 1 ? candles[candles.length - 2] : undefined;
 
-  const latestIdx = closeSeries && closeSeries.length > 0 ? closeSeries.length - 1 : -1;
-  const prevIdx = latestIdx > 0 ? latestIdx - 1 : -1;
-
-  const close = latestIdx >= 0 ? closeSeries?.[latestIdx] ?? null : null;
-  const open = latestIdx >= 0 ? openSeries?.[latestIdx] ?? null : null;
-  const high = latestIdx >= 0 ? highSeries?.[latestIdx] ?? null : null;
-  const low = latestIdx >= 0 ? lowSeries?.[latestIdx] ?? null : null;
-  const volume = latestIdx >= 0 ? volumeSeries?.[latestIdx] ?? null : null;
-  const prevClose =
-    prevIdx >= 0 && closeSeries ? (closeSeries?.[prevIdx] ?? null) : null;
-
-  const timestamp =
-    latestIdx >= 0 && closeTimes && closeTimes[latestIdx]
-      ? new Date(closeTimes[latestIdx]).toISOString()
-      : new Date().toISOString();
+  const timestamp = latest.closeTime
+    ? new Date(latest.closeTime).toISOString()
+    : latest.openTime
+    ? new Date(latest.openTime).toISOString()
+    : new Date().toISOString();
 
   return {
     symbol: CONFIG.dataSymbol,
     timeframe: CONFIG.timeframe,
     timestamp,
-    close: close ?? null,
-    open: open ?? null,
-    high: high ?? null,
-    low: low ?? null,
-    volume: volume ?? null,
+    close: latest.close ?? null,
+    open: latest.open ?? null,
+    high: latest.high ?? null,
+    low: latest.low ?? null,
+    volume: latest.volume ?? null,
     emaFast,
     emaSlow,
     emaTrendBias: computeTrendBias(emaFast, emaSlow),
     rsi,
     atr,
-    priceChangePct: percentChange(close ?? null, prevClose),
+    priceChangePct: percentChange(latest.close ?? null, previous?.close ?? null),
   };
 }
 
