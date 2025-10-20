@@ -78,6 +78,38 @@ interface TradingSignalPayload {
   amount: string;
 }
 
+interface MessageDictionary {
+  marketSnapshot: string;
+  priceLine: (features: MarketFeatures) => string;
+  indicatorLine: (features: MarketFeatures) => string;
+  volumeLine: (features: MarketFeatures) => string;
+  aiDecisionError: string;
+  summaryLine: (
+    features: MarketFeatures,
+    decision: TradingDecision,
+    current: PositionState
+  ) => string;
+  rationale: (decision: TradingDecision) => string;
+  riskNotice: (decision: TradingDecision) => string;
+  actionMismatch: (decision: TradingDecision) => string;
+  missingGoogleKey: string;
+  botStart: (context: {
+    symbol: string;
+    timeframe: string;
+    position: PositionState;
+    dryRun: boolean;
+  }) => string;
+  dataReady: string;
+  dataInitError: string;
+  evaluateError: string;
+  signalGenerated: (signal: TradingSignalPayload) => string;
+  signalFailed: (response: Response, text: string) => string;
+  signalSuccess: () => string;
+  signalError: () => string;
+}
+
+type SupportedLang = "zh" | "en";
+
 const CONFIG = {
   dataSymbol: process.env.DATA_SYMBOL ?? "BTCUSDT",
   signalInstrument: process.env.SIGNAL_INSTRUMENT ?? "BTC-USDT-SWAP",
@@ -99,6 +131,102 @@ const CONFIG = {
     process.env.TRADING_URL ??
     "https://www.okx.com/pap/algo/signal/trigger", // default paper endpoint
   dryRun: (process.env.DRY_RUN ?? "true").toLowerCase() !== "false",
+  messages: (() => {
+    const lang: SupportedLang =
+      (process.env.UI_LANG ?? "zh").toLowerCase() === "en" ? "en" : "zh";
+    const dictionaries: Record<SupportedLang, MessageDictionary> = {
+      zh: {
+        marketSnapshot: "市场特征",
+        priceLine: (features: MarketFeatures) =>
+          `  价格: close=${formatNumber(features.close)} open=${formatNumber(
+            features.open
+          )} high=${formatNumber(features.high)} low=${formatNumber(features.low)}`,
+        indicatorLine: (features: MarketFeatures) =>
+          `  指标: EMA(9)=${formatNumber(features.emaFast)} EMA(21)=${formatNumber(
+            features.emaSlow
+          )} RSI=${formatNumber(features.rsi)} ATR=${formatNumber(features.atr)}`,
+        volumeLine: (features: MarketFeatures) =>
+          `  体量: volume=${formatNumber(features.volume, 0)} priceChangePct=${formatNumber(
+            features.priceChangePct
+          )}`,
+        aiDecisionError: "调用AI决策失败，使用本地回退逻辑。",
+        summaryLine: (
+          features: MarketFeatures,
+          decision: TradingDecision,
+          current: PositionState
+        ) =>
+          `[${features.timestamp}] 市场评论: ${decision.marketCommentary} | 当前仓位: ${current} -> 目标仓位: ${decision.desiredPosition} | 置信度: ${decision.confidence.toFixed(
+            2
+          )}`,
+        rationale: (decision: TradingDecision) => `决策依据: ${decision.rationale}`,
+        riskNotice: (decision: TradingDecision) =>
+          `风险提示: ${decision.riskNotice}`,
+        actionMismatch: (decision: TradingDecision) =>
+          `AI 生成的 action(${decision.action}) 与 desiredPosition(${decision.desiredPosition}) 不匹配，忽略此操作。`,
+        missingGoogleKey: "未检测到 GOOGLE_API_KEY，将在 AI 请求失败时回退到本地策略。",
+        botStart: ({ symbol, timeframe, position: pos, dryRun }) =>
+          `启动交易机器人：symbol=${symbol} timeframe=${timeframe} 当前仓位=${pos} dryRun=${dryRun}`,
+        dataReady: "市场数据初始化完成。",
+        dataInitError:
+          "初始化市场数据失败，将使用空数据启动。稍后评估时会尝试继续拉取。",
+        evaluateError: "执行单次评估出现错误：",
+        signalGenerated: (signal: TradingSignalPayload) =>
+          `信号已生成但未发送: ${JSON.stringify(signal)}`,
+        signalFailed: (response: Response, text: string) =>
+          `发送信号失败: HTTP ${response.status} ${response.statusText} - ${text}`,
+        signalSuccess: () => "信号推送成功。",
+        signalError: () => "推送信号时出现错误。",
+      },
+      en: {
+        marketSnapshot: "Market Snapshot",
+        priceLine: (features: MarketFeatures) =>
+          `  Price: close=${formatNumber(features.close)} open=${formatNumber(
+            features.open
+          )} high=${formatNumber(features.high)} low=${formatNumber(features.low)}`,
+        indicatorLine: (features: MarketFeatures) =>
+          `  Indicators: EMA(9)=${formatNumber(
+            features.emaFast
+          )} EMA(21)=${formatNumber(features.emaSlow)} RSI=${formatNumber(
+            features.rsi
+          )} ATR=${formatNumber(features.atr)}`,
+        volumeLine: (features: MarketFeatures) =>
+          `  Volume: volume=${formatNumber(features.volume, 0)} priceChangePct=${formatNumber(
+            features.priceChangePct
+          )}`,
+        aiDecisionError:
+          "AI decision request failed; falling back to heuristic strategy.",
+        summaryLine: (
+          features: MarketFeatures,
+          decision: TradingDecision,
+          current: PositionState
+        ) =>
+          `[${features.timestamp}] Commentary: ${decision.marketCommentary} | Position: ${current} -> Target: ${decision.desiredPosition} | Confidence: ${decision.confidence.toFixed(
+            2
+          )}`,
+        rationale: (decision: TradingDecision) =>
+          `Rationale: ${decision.rationale}`,
+        riskNotice: (decision: TradingDecision) =>
+          `Risk Notice: ${decision.riskNotice}`,
+        actionMismatch: (decision: TradingDecision) =>
+          `AI action (${decision.action}) does not match desired position (${decision.desiredPosition}); ignoring.`,
+        missingGoogleKey:
+          "GOOGLE_API_KEY not detected. Falling back to heuristic strategy if AI calls fail.",
+        botStart: ({ symbol, timeframe, position: pos, dryRun }) =>
+          `Starting trading bot: symbol=${symbol} timeframe=${timeframe} position=${pos} dryRun=${dryRun}`,
+        dataReady: "Market data initialized.",
+        dataInitError:
+          "Failed to initialize market data; will retry during evaluation.",
+        evaluateError: "Evaluation error:",
+        signalGenerated: (signal: TradingSignalPayload) =>
+          `Signal generated (not sent): ${JSON.stringify(signal)}`,
+        signalFailed: (response: Response, text: string) =>
+          `Failed to dispatch signal: HTTP ${response.status} ${response.statusText} - ${text}`,
+        signalSuccess: () => "Signal dispatched successfully.",
+        signalError: () => "Error while dispatching signal.",
+      },
+    } as const;
+    return dictionaries[lang] ?? dictionaries.zh;
+  })(),
 };
 
 let currentPosition: PositionState = PositionState.EMPTY;
@@ -109,6 +237,8 @@ const pineTS = new PineTS(
   CONFIG.timeframe,
   CONFIG.lookback
 );
+
+const MESSAGES = CONFIG.messages;
 
 interface CandleData {
   open: number;
@@ -506,7 +636,7 @@ function buildSignalPayload(
 
 async function dispatchSignal(signal: TradingSignalPayload): Promise<void> {
   if (CONFIG.dryRun) {
-    console.log(`[DRY-RUN] 信号已生成但未发送: ${JSON.stringify(signal)}`);
+    console.log(`[DRY-RUN] ${MESSAGES.signalGenerated(signal)}`);
     return;
   }
   try {
@@ -519,14 +649,12 @@ async function dispatchSignal(signal: TradingSignalPayload): Promise<void> {
     });
     if (!response.ok) {
       const text = await response.text();
-      console.error(
-        `发送信号失败: HTTP ${response.status} ${response.statusText} - ${text}`
-      );
+      console.error(MESSAGES.signalFailed(response, text));
     } else {
-      console.log("信号推送成功。");
+      console.log(MESSAGES.signalSuccess());
     }
   } catch (error) {
-    console.error("推送信号时出现错误。", error);
+    console.error(MESSAGES.signalError(), error);
   }
 }
 
@@ -534,40 +662,21 @@ async function evaluateOnce(): Promise<void> {
   const features = await fetchMarketFeatures();
   let decision: TradingDecision;
 
-  console.log(`[${features.timestamp}] 市场特征:`);
-  console.log(
-    `  价格: close=${formatNumber(features.close)} open=${formatNumber(
-      features.open
-    )} high=${formatNumber(features.high)} low=${formatNumber(features.low)}`
-  );
-  console.log(
-    `  指标: EMA(9)=${formatNumber(features.emaFast)} EMA(21)=${formatNumber(
-      features.emaSlow
-    )} RSI=${formatNumber(features.rsi)} ATR=${formatNumber(features.atr)}`
-  );
-  console.log(
-    `  体量: volume=${formatNumber(features.volume, 0)} priceChangePct=${formatNumber(
-      features.priceChangePct
-    )}`
-  );
+  console.log(`[${features.timestamp}] ${MESSAGES.marketSnapshot}:`);
+  console.log(MESSAGES.priceLine(features));
+  console.log(MESSAGES.indicatorLine(features));
+  console.log(MESSAGES.volumeLine(features));
 
   try {
     decision = await requestDecision(features, currentPosition);
   } catch (error) {
-    console.error(
-      "调用AI决策失败，使用本地回退逻辑。",
-      (error as Error).message ?? error
-    );
+    console.error(MESSAGES.aiDecisionError, (error as Error).message ?? error);
     decision = fallbackDecision(features, currentPosition);
   }
 
-  console.log(
-    `[${features.timestamp}] 市场评论: ${decision.marketCommentary} | 当前仓位: ${currentPosition} -> 目标仓位: ${decision.desiredPosition} | 置信度: ${decision.confidence.toFixed(
-      2
-    )}`
-  );
-  console.log(`决策依据: ${decision.rationale}`);
-  console.log(`风险提示: ${decision.riskNotice}`);
+  console.log(MESSAGES.summaryLine(features, decision, currentPosition));
+  console.log(MESSAGES.rationale(decision));
+  console.log(MESSAGES.riskNotice(decision));
 
   if (decision.action) {
     const validTransition =
@@ -576,9 +685,7 @@ async function evaluateOnce(): Promise<void> {
       decision.desiredPosition === currentPosition;
 
     if (!validTransition) {
-      console.warn(
-        `AI 生成的 action(${decision.action}) 与 desiredPosition(${decision.desiredPosition}) 不匹配，忽略此操作。`
-      );
+      console.warn(MESSAGES.actionMismatch(decision));
     } else {
       const signalPayload = buildSignalPayload(
         decision.action,
@@ -594,30 +701,30 @@ async function evaluateOnce(): Promise<void> {
 
 async function main(): Promise<void> {
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    console.warn(
-      "未检测到 GOOGLE_API_KEY，将在 AI 请求失败时回退到本地策略。"
-    );
+    console.warn(MESSAGES.missingGoogleKey);
   }
 
   console.log(
-    `启动交易机器人：symbol=${CONFIG.dataSymbol} timeframe=${CONFIG.timeframe} 当前仓位=${currentPosition} dryRun=${CONFIG.dryRun}`
+    MESSAGES.botStart({
+      symbol: CONFIG.dataSymbol,
+      timeframe: CONFIG.timeframe,
+      position: currentPosition,
+      dryRun: CONFIG.dryRun,
+    })
   );
 
   try {
     await pineTS.ready();
-    console.log("市场数据初始化完成。");
+    console.log(MESSAGES.dataReady);
   } catch (error) {
-    console.error(
-      "初始化市场数据失败，将使用空数据启动。稍后评估时会尝试继续拉取。",
-      error
-    );
+    console.error(MESSAGES.dataInitError, error);
   }
 
   while (true) {
     try {
       await evaluateOnce();
     } catch (error) {
-      console.error("执行单次评估出现错误：", error);
+      console.error(MESSAGES.evaluateError, error);
     }
     await Bun.sleep(CONFIG.iterationIntervalMs);
   }

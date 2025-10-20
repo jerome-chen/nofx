@@ -81,6 +81,7 @@ Each responsibility is encapsulated in a dedicated agent so teams can iterate in
    ```bash
    cp env.example .env
    # 编辑 .env 填写 OKX/LLM 等密钥
+   # 可选: 设置 UI_LANG=zh 或 en 控制命令行输出语言
    ```
 
 3. 启动主循环 · Run the main loop
