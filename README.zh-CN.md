@@ -13,6 +13,12 @@
 
 > ⚠️ **风险提示**：本系统为实验性项目，AI自动交易存在重大风险，强烈建议仅用于学习研究或小额资金测试！
 
+## 👥 开发者社区
+
+加入我们的Telegram开发者社区，讨论、分享想法并获得支持：
+
+**💬 [NOFX开发者社区](https://t.me/nofx_dev_community)**
+
 ---
 
 ## ✨ 核心特性
@@ -83,10 +89,14 @@ nofx/
 ├── manager/                        # 多trader管理
 │   └── trader_manager.go           # 管理多个trader实例
 │
-├── market/                         # 市场数据与AI决策
-│   ├── market_data.go              # 市场数据获取（K线、指标）
-│   ├── ai_decision_engine.go       # AI决策引擎（含历史反馈）
-│   └── ai_signal.go                # AI API调用（DeepSeek/Qwen）
+├── mcp/                            # Model Context Protocol - AI通信
+│   └── client.go                   # AI API客户端（DeepSeek/Qwen集成）
+│
+├── decision/                       # AI决策引擎
+│   └── engine.go                   # 决策逻辑（含历史反馈）
+│
+├── market/                         # 市场数据获取
+│   └── data.go                     # 市场数据与技术指标（K线、RSI、MACD）
 │
 ├── pool/                           # 币种池管理
 │   └── coin_pool.go                # AI500 + OI Top合并池
@@ -95,8 +105,8 @@ nofx/
 │   └── decision_logger.go          # 决策记录 + 表现分析
 │
 ├── decision_logs/                  # 决策日志存储
-│   ├── trader1/                    # Trader 1的日志
-│   └── trader2/                    # Trader 2的日志
+│   ├── qwen_trader/                # Qwen trader日志
+│   └── deepseek_trader/            # DeepSeek trader日志
 │
 └── web/                            # React前端
     ├── src/
@@ -123,6 +133,34 @@ nofx/
 - `recharts` - 图表库（收益率曲线、对比图）
 - `swr` - 数据获取和缓存
 - `tailwindcss` - CSS框架
+
+---
+
+## 💰 注册币安账户（省手续费！）
+
+使用本系统前，您需要一个币安合约账户。**使用我们的推荐链接注册可享受手续费优惠：**
+
+**🎁 [注册币安 - 享手续费折扣](https://www.binance.com/join?ref=TINKLEVIP)**
+
+### 注册步骤：
+
+1. **点击上方链接** 访问币安注册页面
+2. **完成注册** 使用邮箱/手机号注册
+3. **完成KYC身份认证**（合约交易必须）
+4. **开通合约账户**：
+   - 进入币安首页 → 衍生品 → U本位合约
+   - 点击"立即开通"激活合约交易
+5. **创建API密钥**：
+   - 进入账户 → API管理
+   - 创建新的API密钥，**务必勾选"合约"权限**
+   - 保存API Key和Secret Key（config.json中需要）
+   - **重要**：添加IP白名单以确保安全
+
+### 手续费优惠说明：
+
+- ✅ **现货交易**：最高享30%手续费返佣
+- ✅ **合约交易**：最高享30%手续费返佣
+- ✅ **终身有效**：永久享受交易手续费折扣
 
 ---
 
@@ -212,8 +250,12 @@ cd ..
 - `binance_api_key/secret_key`: 每个trader使用独立的币安账户
 - `initial_balance`: 初始余额（用于计算盈亏%）
 - `scan_interval_minutes`: 决策周期（建议3-5分钟）
-- `coin_pool_api_url`: AI500币种池API（可选）
-- `oi_top_api_url`: OI Top持仓量API（可选）
+- `use_default_coins`: **true** = 使用默认8个主流币种 | **false** = 使用API币种池（新手推荐：true）
+- `coin_pool_api_url`: AI500币种池API（可选，当use_default_coins=true时忽略）
+- `oi_top_api_url`: OI Top持仓量API（可选，留空时跳过OI Top数据）
+
+**默认币种列表**（当 `use_default_coins: true` 时）：
+- BTC、ETH、SOL、BNB、XRP、DOGE、ADA、HYPE
 
 ### 5. 运行系统
 
@@ -635,3 +677,9 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 **最后更新**: 2025-10-29
 
 **⚡ 用AI的力量，探索量化交易的可能性！**
+
+---
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=tinkle-community/nofx&type=Date)](https://star-history.com/#tinkle-community/nofx&Date)

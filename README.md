@@ -13,6 +13,12 @@ An automated Binance futures trading system powered by **DeepSeek/Qwen AI**, sup
 
 > ⚠️ **Risk Warning**: This system is experimental. AI auto-trading carries significant risks. Strongly recommended for learning/research purposes or testing with small amounts only!
 
+## 👥 Developer Community
+
+Join our Telegram developer community to discuss, share ideas, and get support:
+
+**💬 [NOFX Developer Community](https://t.me/nofx_dev_community)**
+
 ---
 
 ## ✨ Core Features
@@ -83,10 +89,14 @@ nofx/
 ├── manager/                        # Multi-trader management
 │   └── trader_manager.go           # Manages multiple trader instances
 │
-├── market/                         # Market data & AI decisions
-│   ├── market_data.go              # Market data fetching (K-line, indicators)
-│   ├── ai_decision_engine.go       # AI decision engine (with historical feedback)
-│   └── ai_signal.go                # AI API calls (DeepSeek/Qwen)
+├── mcp/                            # Model Context Protocol - AI communication
+│   └── client.go                   # AI API client (DeepSeek/Qwen integration)
+│
+├── decision/                       # AI decision engine
+│   └── engine.go                   # Decision logic with historical feedback
+│
+├── market/                         # Market data fetching
+│   └── data.go                     # Market data & technical indicators (K-line, RSI, MACD)
 │
 ├── pool/                           # Coin pool management
 │   └── coin_pool.go                # AI500 + OI Top merged pool
@@ -95,8 +105,8 @@ nofx/
 │   └── decision_logger.go          # Decision recording + performance analysis
 │
 ├── decision_logs/                  # Decision log storage
-│   ├── trader1/                    # Trader 1 logs
-│   └── trader2/                    # Trader 2 logs
+│   ├── qwen_trader/                # Qwen trader logs
+│   └── deepseek_trader/            # DeepSeek trader logs
 │
 └── web/                            # React frontend
     ├── src/
@@ -123,6 +133,34 @@ nofx/
 - `recharts` - Chart library (equity curve, comparison charts)
 - `swr` - Data fetching and caching
 - `tailwindcss` - CSS framework
+
+---
+
+## 💰 Register Binance Account (Save on Fees!)
+
+Before using this system, you need a Binance Futures account. **Use our referral link to save on trading fees:**
+
+**🎁 [Register Binance - Get Fee Discount](https://www.binance.com/join?ref=TINKLEVIP)**
+
+### Registration Steps:
+
+1. **Click the link above** to visit Binance registration page
+2. **Complete registration** with email/phone number
+3. **Complete KYC verification** (required for futures trading)
+4. **Enable Futures account**:
+   - Go to Binance homepage → Derivatives → USD-M Futures
+   - Click "Open Now" to activate futures trading
+5. **Create API Key**:
+   - Go to Account → API Management
+   - Create new API key, **enable "Futures" permission**
+   - Save API Key and Secret Key (needed for config.json)
+   - **Important**: Whitelist your IP address for security
+
+### Fee Discount Benefits:
+
+- ✅ **Spot trading**: Up to 30% fee discount
+- ✅ **Futures trading**: Up to 30% fee discount
+- ✅ **Lifetime validity**: Permanent discount on all trades
 
 ---
 
@@ -212,8 +250,12 @@ Create `config.json` file (use `config.json.example` as template):
 - `binance_api_key/secret_key`: Each trader uses independent Binance account
 - `initial_balance`: Initial balance (for calculating P/L%)
 - `scan_interval_minutes`: Decision cycle (recommended 3-5 minutes)
-- `coin_pool_api_url`: AI500 coin pool API (optional)
-- `oi_top_api_url`: OI Top open interest API (optional)
+- `use_default_coins`: **true** = Use default 8 mainstream coins | **false** = Use API coin pool (recommended for beginners: true)
+- `coin_pool_api_url`: AI500 coin pool API (optional, ignored when use_default_coins=true)
+- `oi_top_api_url`: OI Top open interest API (optional, if empty, OI Top data is skipped)
+
+**Default Coin List** (when `use_default_coins: true`):
+- BTC, ETH, SOL, BNB, XRP, DOGE, ADA, HYPE
 
 ### 5. Run the System
 
@@ -556,3 +598,9 @@ Issues and Pull Requests are welcome!
 **Last Updated**: 2025-10-29
 
 **⚡ Explore the possibilities of quantitative trading with the power of AI!**
+
+---
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=tinkle-community/nofx&type=Date)](https://star-history.com/#tinkle-community/nofx&Date)

@@ -7,6 +7,8 @@
 nofx
 nofx-auto
 *.exe
+nofx
+nofx_test
 
 # Go 相关
 *.test
@@ -31,6 +33,8 @@ coin_pool_cache/
 nofx_test
 
 # Node.js
-node_modules
+node_modules/
+web/node_modules/
 **/node_modules
 web/dist/
+web/.vite/
