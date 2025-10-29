@@ -16,6 +16,7 @@ type TraderConfig struct {
 	BinanceSecretKey    string  `json:"binance_secret_key"`
 	QwenKey             string  `json:"qwen_key,omitempty"`
 	DeepSeekKey         string  `json:"deepseek_key,omitempty"`
+	GrokKey             string  `json:"grok_key,omitempty"`
 	InitialBalance      float64 `json:"initial_balance"`
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 }
@@ -70,9 +71,9 @@ func (c *Config) Validate() error {
 		if trader.Name == "" {
 			return fmt.Errorf("trader[%d]: Name不能为空", i)
 		}
-		if trader.AIModel != "qwen" && trader.AIModel != "deepseek" {
-			return fmt.Errorf("trader[%d]: ai_model必须是 'qwen' 或 'deepseek'", i)
-		}
+		if trader.AIModel != "qwen" && trader.AIModel != "deepseek" && trader.AIModel != "grok" {
+				return fmt.Errorf("trader[%d]: ai_model必须是 'qwen', 'deepseek' 或 'grok'", i)
+			}
 		if trader.BinanceAPIKey == "" || trader.BinanceSecretKey == "" {
 			return fmt.Errorf("trader[%d]: 币安API密钥不能为空", i)
 		}
@@ -80,8 +81,11 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("trader[%d]: 使用Qwen时必须配置qwen_key", i)
 		}
 		if trader.AIModel == "deepseek" && trader.DeepSeekKey == "" {
-			return fmt.Errorf("trader[%d]: 使用DeepSeek时必须配置deepseek_key", i)
-		}
+				return fmt.Errorf("trader[%d]: 使用DeepSeek时必须配置deepseek_key", i)
+			}
+			if trader.AIModel == "grok" && trader.GrokKey == "" {
+				return fmt.Errorf("trader[%d]: 使用Grok时必须配置grok_key", i)
+			}
 		if trader.InitialBalance <= 0 {
 			return fmt.Errorf("trader[%d]: initial_balance必须大于0", i)
 		}

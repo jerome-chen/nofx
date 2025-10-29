@@ -4,6 +4,7 @@
 *.xml
 
 # 编译产物
+nofx
 nofx-auto
 *.exe
 
@@ -28,3 +29,8 @@ config.json
 decision_logs/
 coin_pool_cache/
 nofx_test
+
+# Node.js
+node_modules
+**/node_modules
+web/dist/

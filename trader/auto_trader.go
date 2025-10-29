@@ -29,6 +29,7 @@ type AutoTraderConfig struct {
 	UseQwen     bool
 	DeepSeekKey string
 	QwenKey     string
+	GrokKey     string
 
 	// 扫描配置
 	ScanInterval time.Duration // 扫描间隔（建议3分钟）
@@ -77,10 +78,16 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 	}
 
 	// 初始化AI
-	if config.UseQwen {
+	switch config.AIModel {
+	case "qwen":
 		mcp.SetQwenAPIKey(config.QwenKey, "")
 		log.Printf("🤖 [%s] 使用阿里云Qwen AI", config.Name)
-	} else {
+	case "grok":
+		mcp.SetGrokAPIKey(config.GrokKey)
+		log.Printf("🤖 [%s] 使用Grok AI", config.Name)
+	case "deepseek":
+		fallthrough
+	default:
 		mcp.SetDeepSeekAPIKey(config.DeepSeekKey)
 		log.Printf("🤖 [%s] 使用DeepSeek AI", config.Name)
 	}
@@ -491,7 +498,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	}
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.GetMarketData(decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -540,7 +547,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	}
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.GetMarketData(decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -579,7 +586,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	log.Printf("  🔄 平多仓: %s", decision.Symbol)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.GetMarketData(decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -605,7 +612,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	log.Printf("  🔄 平空仓: %s", decision.Symbol)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.GetMarketData(decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -648,9 +655,16 @@ func (at *AutoTrader) GetDecisionLogger() *logger.DecisionLogger {
 
 // GetStatus 获取系统状态（用于API）
 func (at *AutoTrader) GetStatus() map[string]interface{} {
-	aiProvider := "DeepSeek"
-	if at.config.UseQwen {
+	var aiProvider string
+	switch at.config.AIModel {
+	case "qwen":
 		aiProvider = "Qwen"
+	case "grok":
+		aiProvider = "Grok"
+	case "deepseek":
+		fallthrough
+	default:
+		aiProvider = "DeepSeek"
 	}
 
 	return map[string]interface{}{

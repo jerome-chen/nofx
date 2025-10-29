@@ -15,6 +15,7 @@ type Provider string
 
 const (
 	ProviderDeepSeek Provider = "deepseek"
+	ProviderGrok     Provider = "grok"
 	ProviderQwen     Provider = "qwen"
 )
 
@@ -51,6 +52,14 @@ func SetQwenAPIKey(apiKey, secretKey string) {
 	defaultConfig.SecretKey = secretKey
 	defaultConfig.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	defaultConfig.Model = "qwen-plus" // 可选: qwen-turbo, qwen-plus, qwen-max
+}
+
+// SetGrokAPIKey 设置Grok API密钥
+func SetGrokAPIKey(apiKey string) {
+	defaultConfig.APIKey = apiKey
+	defaultConfig.Provider = ProviderGrok
+	defaultConfig.BaseURL = "https://api.groq.com/openai/v1"
+	defaultConfig.Model = "gemma-7b-it"
 }
 
 // SetConfig 设置完整的AI配置（高级用户）
@@ -148,6 +157,8 @@ func callOnce(systemPrompt, userPrompt string) (string, error) {
 	// 根据不同的Provider设置认证方式
 	switch defaultConfig.Provider {
 	case ProviderDeepSeek:
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", defaultConfig.APIKey))
+	case ProviderGrok:
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", defaultConfig.APIKey))
 	case ProviderQwen:
 		// 阿里云Qwen使用API-Key认证

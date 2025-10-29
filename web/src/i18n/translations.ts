@@ -4,7 +4,7 @@ export const translations = {
   en: {
     // Header
     appTitle: 'AI Trading Competition',
-    subtitle: 'Qwen vs DeepSeek · Real-time',
+    subtitle: 'Qwen vs DeepSeek vs Grok · Real-time',
     competition: 'Competition',
     details: 'Details',
     running: 'RUNNING',
@@ -67,7 +67,7 @@ export const translations = {
     // Competition Page
     aiCompetition: 'AI Competition',
     traders: 'traders',
-    liveBattle: 'Qwen vs DeepSeek · Live Battle',
+    liveBattle: 'Qwen vs DeepSeek vs Grok · Live Battle',
     leader: 'Leader',
     leaderboard: 'Leaderboard',
     live: 'LIVE',
@@ -122,7 +122,7 @@ export const translations = {
   zh: {
     // Header
     appTitle: 'AI交易竞赛',
-    subtitle: 'Qwen vs DeepSeek · 实时',
+    subtitle: 'Qwen vs DeepSeek vs Grok · 实时',
     competition: '竞赛',
     details: '详情',
     running: '运行中',
@@ -185,7 +185,7 @@ export const translations = {
     // Competition Page
     aiCompetition: 'AI竞赛',
     traders: '位交易者',
-    liveBattle: 'Qwen vs DeepSeek · 实时对战',
+    liveBattle: 'Qwen vs DeepSeek vs Grok · 实时对战',
     leader: '🥇 领先者',
     leaderboard: '🥇 排行榜',
     live: '直播',

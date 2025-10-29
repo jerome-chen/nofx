@@ -96,19 +96,11 @@ export function ComparisonChart({ traders }: ComparisonChartProps) {
     if (combined.length > 0) {
       const lastPoint = combined[combined.length - 1];
       console.log(`Chart: ${combined.length} data points, last time: ${lastPoint.time}, timestamp: ${lastPoint.timestamp}`);
-      console.log('Last 3 points:', combined.slice(-3).map(p => ({
-        time: p.time,
-        timestamp: p.timestamp,
-        deepseek: p.deepseek_trader_pnl_pct,
-        qwen: p.qwen_trader_pnl_pct
-      })));
+      
     }
 
     return combined;
-  }, [
-    traderHistories[0]?.data,
-    traderHistories[1]?.data,
-  ]);
+  }, [traders, ...traderHistories.map(h => h.data)]);
 
   const isLoading = traderHistories.some((h) => !h.data);
 
@@ -168,6 +160,8 @@ export function ComparisonChart({ traders }: ComparisonChartProps) {
     const trader = traders.find((t) => t.trader_id === traderId);
     if (trader?.ai_model === 'qwen') {
       return '#c084fc'; // purple-400 (更亮)
+    } else if (trader?.ai_model === 'grok') {
+      return '#11a37f'; // green-500
     } else {
       return '#60a5fa'; // blue-400 (更亮)
     }
@@ -213,8 +207,8 @@ export function ComparisonChart({ traders }: ComparisonChartProps) {
   // 计算当前差距
   const currentGap = displayData.length > 0 ? (() => {
     const lastPoint = displayData[displayData.length - 1];
-    const values = traders.map(t => lastPoint[`${t.trader_id}_pnl_pct`] || 0);
-    return Math.abs(values[0] - values[1]);
+    const values = traders.map(t => lastPoint[`${t.trader_id}_pnl_pct`] || 0).sort((a, b) => b - a);
+    return Math.abs(values[0] - values[values.length - 1]);
   })() : 0;
 
   return (

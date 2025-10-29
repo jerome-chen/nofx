@@ -73,9 +73,11 @@ export function CompetitionPage() {
         <div className="text-right">
           <div className="text-xs mb-1" style={{ color: '#848E9C' }}>{t('leader', language)}</div>
           <div className="text-lg font-bold" style={{ color: '#F0B90B' }}>{leader?.trader_name}</div>
-          <div className="text-sm font-semibold" style={{ color: leader.total_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
-            {leader.total_pnl >= 0 ? '+' : ''}{leader.total_pnl_pct.toFixed(2)}%
-          </div>
+          {leader && (
+            <div className="text-sm font-semibold" style={{ color: leader.total_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
+              {leader.total_pnl >= 0 ? '+' : ''}{leader.total_pnl_pct.toFixed(2)}%
+            </div>
+          )}
         </div>
       </div>
 
@@ -146,16 +148,24 @@ export function CompetitionPage() {
                       {/* P&L */}
                       <div className="text-right min-w-[90px]">
                         <div className="text-xs" style={{ color: '#848E9C' }}>{t('pnl', language)}</div>
-                        <div
-                          className="text-lg font-bold mono"
-                          style={{ color: trader.total_pnl >= 0 ? '#0ECB81' : '#F6465D' }}
-                        >
-                          {trader.total_pnl >= 0 ? '+' : ''}
-                          {trader.total_pnl_pct.toFixed(2)}%
-                        </div>
-                        <div className="text-xs mono" style={{ color: '#848E9C' }}>
-                          {trader.total_pnl >= 0 ? '+' : ''}{trader.total_pnl.toFixed(2)}
-                        </div>
+                        {trader.total_pnl != null && trader.total_pnl_pct != null ? (
+                          <>
+                            <div
+                              className="text-lg font-bold mono"
+                              style={{ color: trader.total_pnl >= 0 ? '#0ECB81' : '#F6465D' }}
+                            >
+                              {trader.total_pnl >= 0 ? '+' : ''}
+                              {trader.total_pnl_pct.toFixed(2)}%
+                            </div>
+                            <div className="text-xs mono" style={{ color: '#848E9C' }}>
+                              {trader.total_pnl >= 0 ? '+' : ''}{trader.total_pnl.toFixed(2)}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-lg font-bold mono" style={{ color: '#848E9C' }}>
+                            N/A
+                          </div>
+                        )}
                       </div>
 
                       {/* Positions */}
@@ -226,17 +236,25 @@ export function CompetitionPage() {
                     >
                       {trader.trader_name}
                     </div>
-                    <div className="text-2xl font-bold mono mb-1" style={{ color: trader.total_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
-                      {trader.total_pnl >= 0 ? '+' : ''}{trader.total_pnl_pct.toFixed(2)}%
-                    </div>
-                    {isWinning && gap > 0 && (
-                      <div className="text-xs font-semibold" style={{ color: '#0ECB81' }}>
-                        {t('leadingBy', language, { gap: gap.toFixed(2) })}
-                      </div>
-                    )}
-                    {!isWinning && gap < 0 && (
-                      <div className="text-xs font-semibold" style={{ color: '#F6465D' }}>
-                        {t('behindBy', language, { gap: Math.abs(gap).toFixed(2) })}
+                    {trader.total_pnl != null && trader.total_pnl_pct != null ? (
+                      <>
+                        <div className="text-2xl font-bold mono mb-1" style={{ color: trader.total_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
+                          {trader.total_pnl >= 0 ? '+' : ''}{trader.total_pnl_pct.toFixed(2)}%
+                        </div>
+                        {isWinning && gap > 0 && (
+                          <div className="text-xs font-semibold" style={{ color: '#0ECB81' }}>
+                            {t('leadingBy', language, { gap: gap.toFixed(2) })}
+                          </div>
+                        )}
+                        {!isWinning && gap < 0 && (
+                          <div className="text-xs font-semibold" style={{ color: '#F6465D' }}>
+                            {t('behindBy', language, { gap: Math.abs(gap).toFixed(2) })}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-2xl font-bold mono mb-1" style={{ color: '#848E9C' }}>
+                        N/A
                       </div>
                     )}
                   </div>

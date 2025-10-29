@@ -11,12 +11,12 @@
       "scan_interval_minutes": 3
     },
     {
-      "id": "deepseek_trader",
-      "name": "DeepSeek AI Trader",
-      "ai_model": "deepseek",
+      "id": "grok_trader",
+      "name": "Grok AI Trader",
+      "ai_model": "grok",
       "binance_api_key": "YOUR_BINANCE_API_KEY_2",
       "binance_secret_key": "YOUR_BINANCE_SECRET_KEY_2",
-      "deepseek_key": "YOUR_DEEPSEEK_API_KEY",
+      "grok_key": "YOUR_GROK_API_KEY",
       "initial_balance": 1000.0,
       "scan_interval_minutes": 3
     }
