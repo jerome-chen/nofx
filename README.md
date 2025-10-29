@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🤖 NOFX - AI-Driven Binance Futures Auto Trading Competition System
 
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
@@ -555,4 +556,5 @@ Issues and Pull Requests are welcome!
 
 **Last Updated**: 2025-10-29
 
+**⚡ Explore the possibilities of quantitative trading with the power of AI!**
 **⚡ Explore the possibilities of quantitative trading with the power of AI!**

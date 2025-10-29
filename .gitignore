@@ -7,6 +7,9 @@
 nofx
 nofx-auto
 *.exe
+dist
+out
+*.tgz
 
 # Go 相关
 *.test
@@ -23,6 +26,10 @@ Thumbs.db
 
 # 环境变量
 .env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
 config.json
 
 # 决策日志
@@ -31,6 +38,19 @@ coin_pool_cache/
 nofx_test
 
 # Node.js
-node_modules
 **/node_modules
 web/dist/
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
