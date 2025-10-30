@@ -55,17 +55,6 @@ type OITopData struct {
 
 // Context 交易上下文（传递给AI的完整信息）
 type Context struct {
-<<<<<<< HEAD
-	CurrentTime    string                  `json:"current_time"`
-	RuntimeMinutes int                     `json:"runtime_minutes"`
-	CallCount      int                     `json:"call_count"`
-	Account        AccountInfo             `json:"account"`
-	Positions      []PositionInfo          `json:"positions"`
-	CandidateCoins []CandidateCoin         `json:"candidate_coins"`
-	MarketDataMap  map[string]*market.MarketData `json:"-"` // 不序列化，但内部使用
-	OITopDataMap   map[string]*OITopData   `json:"-"` // OI Top数据映射
-	Performance    interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
-=======
 	CurrentTime     string                  `json:"current_time"`
 	RuntimeMinutes  int                     `json:"runtime_minutes"`
 	CallCount       int                     `json:"call_count"`
@@ -77,7 +66,6 @@ type Context struct {
 	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
 	BTCETHLeverage  int                     `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
 	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
->>>>>>> 897ec1b83311c6261c8c42ece225cc066fbcc9c1
 }
 
 // Decision AI的交易决策
