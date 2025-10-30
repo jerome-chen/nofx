@@ -55,17 +55,17 @@ type OITopData struct {
 
 // Context 交易上下文（传递给AI的完整信息）
 type Context struct {
-	CurrentTime     string                        `json:"current_time"`
-	RuntimeMinutes  int                           `json:"runtime_minutes"`
-	CallCount       int                           `json:"call_count"`
-	Account         AccountInfo                   `json:"account"`
-	Positions       []PositionInfo                `json:"positions"`
-	CandidateCoins  []CandidateCoin               `json:"candidate_coins"`
-	MarketDataMap   map[string]*market.MarketData `json:"-"` // 不序列化，但内部使用
-	OITopDataMap    map[string]*OITopData         `json:"-"` // OI Top数据映射
-	Performance     interface{}                   `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
-	BTCETHLeverage  int                           `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
-	AltcoinLeverage int                           `json:"-"` // 山寨币杠杆倍数（从配置读取）
+	CurrentTime     string                  `json:"current_time"`
+	RuntimeMinutes  int                     `json:"runtime_minutes"`
+	CallCount       int                     `json:"call_count"`
+	Account         AccountInfo             `json:"account"`
+	Positions       []PositionInfo          `json:"positions"`
+	CandidateCoins  []CandidateCoin         `json:"candidate_coins"`
+	MarketDataMap   map[string]*market.Data `json:"-"` // 不序列化，但内部使用
+	OITopDataMap    map[string]*OITopData   `json:"-"` // OI Top数据映射
+	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
+	BTCETHLeverage  int                     `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
+	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
 }
 
 // Decision AI的交易决策
@@ -119,7 +119,7 @@ func GetFullDecision(ctx *Context) (*FullDecision, error) {
 
 // fetchMarketDataForContext 为上下文中的所有币种获取市场数据和OI数据
 func fetchMarketDataForContext(ctx *Context) error {
-	ctx.MarketDataMap = make(map[string]*market.MarketData)
+	ctx.MarketDataMap = make(map[string]*market.Data)
 	ctx.OITopDataMap = make(map[string]*OITopData)
 
 	// 收集所有需要获取数据的币种
@@ -147,7 +147,7 @@ func fetchMarketDataForContext(ctx *Context) error {
 	}
 
 	for symbol := range symbolSet {
-		data, err := market.GetMarketData(symbol)
+		data, err := market.Get(symbol)
 		if err != nil {
 			// 单个币种失败不影响整体，只记录错误
 			continue
@@ -364,7 +364,7 @@ func buildUserPrompt(ctx *Context) string {
 
 			// 使用FormatMarketData输出完整市场数据
 			if marketData, ok := ctx.MarketDataMap[pos.Symbol]; ok {
-				sb.WriteString(market.FormatMarketData(marketData))
+				sb.WriteString(market.Format(marketData))
 				sb.WriteString("\n")
 			}
 		}
@@ -391,7 +391,7 @@ func buildUserPrompt(ctx *Context) string {
 
 		// 使用FormatMarketData输出完整市场数据
 		sb.WriteString(fmt.Sprintf("### %d. %s%s\n\n", displayedCount, coin.Symbol, sourceTags))
-		sb.WriteString(market.FormatMarketData(marketData))
+		sb.WriteString(market.Format(marketData))
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")

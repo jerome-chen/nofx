@@ -575,7 +575,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	}
 
 	// 获取当前价格
-	marketData, err := market.GetMarketData(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -628,7 +628,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	}
 
 	// 获取当前价格
-	marketData, err := market.GetMarketData(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -671,7 +671,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	log.Printf("  🔄 平多仓: %s", decision.Symbol)
 
 	// 获取当前价格
-	marketData, err := market.GetMarketData(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -697,7 +697,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	log.Printf("  🔄 平空仓: %s", decision.Symbol)
 
 	// 获取当前价格
-	marketData, err := market.GetMarketData(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol)
 	if err != nil {
 		return err
 	}
