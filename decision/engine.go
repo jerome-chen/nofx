@@ -55,17 +55,17 @@ type OITopData struct {
 
 // Context 交易上下文（传递给AI的完整信息）
 type Context struct {
-	CurrentTime     string                  `json:"current_time"`
-	RuntimeMinutes  int                     `json:"runtime_minutes"`
-	CallCount       int                     `json:"call_count"`
-	Account         AccountInfo             `json:"account"`
-	Positions       []PositionInfo          `json:"positions"`
-	CandidateCoins  []CandidateCoin         `json:"candidate_coins"`
-	MarketDataMap   map[string]*market.Data `json:"-"` // 不序列化，但内部使用
-	OITopDataMap    map[string]*OITopData   `json:"-"` // OI Top数据映射
-	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
-	BTCETHLeverage  int                     `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
-	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
+	CurrentTime     string                        `json:"current_time"`
+	RuntimeMinutes  int                           `json:"runtime_minutes"`
+	CallCount       int                           `json:"call_count"`
+	Account         AccountInfo                   `json:"account"`
+	Positions       []PositionInfo                `json:"positions"`
+	CandidateCoins  []CandidateCoin               `json:"candidate_coins"`
+	MarketDataMap   map[string]*market.MarketData `json:"-"` // 不序列化，但内部使用
+	OITopDataMap    map[string]*OITopData         `json:"-"` // OI Top数据映射
+	Performance     interface{}                   `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
+	BTCETHLeverage  int                           `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
+	AltcoinLeverage int                           `json:"-"` // 山寨币杠杆倍数（从配置读取）
 }
 
 // Decision AI的交易决策
