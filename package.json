@@ -1,0 +1,26 @@
+{
+  "name": "ritmex-ai-trader",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run index.ts",
+    "dev": "bun run --watch index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^24.8.1",
+    "add": "^2.0.6",
+    "tsx": "^4.20.6"
+  },
+  "peerDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^2.0.23",
+    "ai": "^5.0.76",
+    "dotenv": "^17.2.3",
+    "pinets": "^0.1.34",
+    "zod": "^4.1.12"
+  }
+}
