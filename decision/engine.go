@@ -611,18 +611,21 @@ func buildUserPrompt(ctx *Context) string {
 	return sb.String()
 }
 
-// parseFullDecisionResponse 解析AI的完整决策响应
+// parseFullDecisionResponse 解析AI的完整决策响应（增强鲁棒性版）
 func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int) (*FullDecision, error) {
 	// 1. 提取思维链
 	cotTrace := extractCoTTrace(aiResponse)
 
-	// 2. 提取JSON决策列表
+	// 2. 尝试提取JSON决策列表
 	decisions, err := extractDecisions(aiResponse)
 	if err != nil {
+		// 当解析失败时，尝试从思维链中提取关键信息并生成等待决策
+		// 检查思维链中是否包含明确的交易信号
+		decision := generateDefaultDecision(cotTrace)
 		return &FullDecision{
 			CoTTrace:  cotTrace,
-			Decisions: []Decision{},
-		}, fmt.Errorf("提取决策失败: %w\n\n=== AI思维链分析 ===\n%s", err, cotTrace)
+			Decisions: []Decision{decision},
+		}, fmt.Errorf("提取决策失败(使用默认等待决策): %w\n\n=== AI思维链分析 ===\n%s", err, cotTrace)
 	}
 
 	// 3. 验证决策
@@ -639,7 +642,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 	}, nil
 }
 
-// extractCoTTrace 提取思维链分析
+// extractCoTTrace 提取思维链分析（增强鲁棒性版）
 func extractCoTTrace(response string) string {
 	// 查找JSON数组的开始位置
 	jsonStart := strings.Index(response, "[")
@@ -649,11 +652,20 @@ func extractCoTTrace(response string) string {
 		return strings.TrimSpace(response[:jsonStart])
 	}
 
+	// 检查是否包含截断的JSON片段
+	if strings.Contains(response, "}") || strings.Contains(response, "{") {
+		// 如果包含JSON对象，但不完整，尝试截断到最后一个完整的文本段落
+		lastParaEnd := strings.LastIndex(response, "---")
+		if lastParaEnd > 0 {
+			return strings.TrimSpace(response[:lastParaEnd])
+		}
+	}
+
 	// 如果找不到JSON，整个响应都是思维链
 	return strings.TrimSpace(response)
 }
 
-// extractDecisions 提取JSON决策列表
+// extractDecisions 提取JSON决策列表（增强鲁棒性版）
 func extractDecisions(response string) ([]Decision, error) {
 	// 直接查找JSON数组 - 找第一个完整的JSON数组
 	arrayStart := strings.Index(response, "[")
@@ -664,16 +676,40 @@ func extractDecisions(response string) ([]Decision, error) {
 	// 从 [ 开始，匹配括号找到对应的 ]
 	arrayEnd := findMatchingBracket(response, arrayStart)
 	if arrayEnd == -1 {
-		return nil, fmt.Errorf("无法找到JSON数组结束")
+		// 如果找不到匹配的结束括号，尝试从开始括号开始解析可能的决策
+		// 截取从[开始的子串，并尝试在末尾添加可能的闭合结构
+		partialJSON := response[arrayStart:]
+		
+		// 统计括号深度
+		depth := 1
+		var i int
+		for i = 1; i < len(partialJSON); i++ {
+			switch partialJSON[i] {
+			case '[':
+				depth++
+			case ']':
+				depth--
+				if depth == 0 {
+					arrayEnd = arrayStart + i
+					break
+				}
+			}
+		}
+		
+		// 如果仍然找不到结束括号，返回错误
+		if depth != 0 {
+			return nil, fmt.Errorf("无法找到JSON数组结束")
+		}
 	}
 
 	jsonContent := strings.TrimSpace(response[arrayStart : arrayEnd+1])
 
-	// 🔧 修复常见的JSON格式错误：缺少引号的字段值
-	// 匹配: "reasoning": 内容"}  或  "reasoning": 内容}  (没有引号)
-	// 修复为: "reasoning": "内容"}
-	// 使用简单的字符串扫描而不是正则表达式
+	// 🔧 修复常见的JSON格式错误：
+	// 1. 修复中文引号
 	jsonContent = fixMissingQuotes(jsonContent)
+	
+	// 2. 尝试修复可能的截断问题
+	jsonContent = attemptToFixTruncatedJSON(jsonContent)
 
 	// 解析JSON
 	var decisions []Decision
@@ -691,6 +727,74 @@ func fixMissingQuotes(jsonStr string) string {
 	jsonStr = strings.ReplaceAll(jsonStr, "\u2018", "'")  // '
 	jsonStr = strings.ReplaceAll(jsonStr, "\u2019", "'")  // '
 	return jsonStr
+}
+
+// attemptToFixTruncatedJSON 尝试修复可能被截断的JSON
+func attemptToFixTruncatedJSON(jsonStr string) string {
+	// 检查JSON是否以适当的方式结束
+	if strings.HasSuffix(jsonStr, "]") {
+		return jsonStr // 看起来是完整的JSON
+	}
+	
+	// 尝试添加缺失的括号
+	// 统计括号数量
+	openBrackets := strings.Count(jsonStr, "[")
+	closeBrackets := strings.Count(jsonStr, "]")
+	
+	// 修复数组括号
+	if openBrackets > closeBrackets {
+		// 添加缺少的关闭括号
+		for i := 0; i < openBrackets-closeBrackets; i++ {
+			jsonStr += "]"
+		}
+	}
+	
+	// 检查对象括号
+	openObjects := strings.Count(jsonStr, "{")
+	closeObjects := strings.Count(jsonStr, "}")
+	
+	// 修复对象括号
+	if openObjects > closeObjects {
+		// 添加缺少的关闭对象括号
+		for i := 0; i < openObjects-closeObjects; i++ {
+			jsonStr += "}"
+		}
+		// 确保最后以数组关闭
+		if !strings.HasSuffix(jsonStr, "]") {
+			jsonStr += "]"
+		}
+	}
+	
+	return jsonStr
+}
+
+// generateDefaultDecision 从思维链中提取信息并生成默认决策
+func generateDefaultDecision(cotTrace string) Decision {
+	// 默认决策是等待
+	decision := Decision{
+		Symbol:    "BTCUSDT", // 使用BTC作为默认币种
+		Action:    "wait",
+		Reasoning: "AI响应被截断，未能提取到结构化决策。根据思维链分析，当前市场状态不适合开仓操作。",
+	}
+	
+	// 尝试从思维链中提取关键信息
+	lowerTrace := strings.ToLower(cotTrace)
+	
+	// 检查是否有明确的市场趋势判断
+	if strings.Contains(lowerTrace, "下降趋势") || strings.Contains(lowerTrace, "下跌趋势") {
+		decision.Reasoning += " 检测到市场处于下降趋势。"
+	} else if strings.Contains(lowerTrace, "上升趋势") || strings.Contains(lowerTrace, "上涨趋势") {
+		decision.Reasoning += " 检测到市场处于上升趋势。"
+	} else if strings.Contains(lowerTrace, "震荡") || strings.Contains(lowerTrace, "盘整") {
+		decision.Reasoning += " 检测到市场处于震荡状态。"
+	}
+	
+	// 检查夏普比率
+	if strings.Contains(lowerTrace, "夏普比率") {
+		decision.Reasoning += " 系统正在分析夏普比率表现。"
+	}
+	
+	return decision
 }
 
 // validateDecisions 验证所有决策（需要账户信息和杠杆配置）

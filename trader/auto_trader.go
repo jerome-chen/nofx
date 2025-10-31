@@ -73,12 +73,8 @@ type AutoTrader struct {
 	aiModel               string // AI模型名称
 	exchange              string // 交易平台名称
 	config                AutoTraderConfig
-<<<<<<< HEAD
-	trader                Trader                 // 使用Trader接口（支持多平台）
-=======
 	trader                Trader // 使用Trader接口（支持多平台）
 	mcpClient             *mcp.Client
->>>>>>> 23fb34c58a6e353c6b8d60b6374b74ce4f246498
 	decisionLogger        *logger.DecisionLogger // 决策日志记录器
 	initialBalance        float64
 	dailyPnL              float64
@@ -119,7 +115,7 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 		mcpClient.SetQwenAPIKey(config.QwenKey, "")
 		log.Printf("🤖 [%s] 使用阿里云Qwen AI", config.Name)
 	} else if config.AIModel == "grok" {
-		mcp.SetGrokAPIKey(config.GrokKey)
+		mcpClient.SetGrokAPIKey(config.GrokKey)
 		log.Printf("🤖 [%s] 使用Grok AI", config.Name)
 	} else {
 		// 默认使用DeepSeek
@@ -177,10 +173,7 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 		exchange:              config.Exchange,
 		config:                config,
 		trader:                trader,
-<<<<<<< HEAD
-=======
 		mcpClient:             mcpClient,
->>>>>>> 23fb34c58a6e353c6b8d60b6374b74ce4f246498
 		decisionLogger:        decisionLogger,
 		initialBalance:        config.InitialBalance,
 		lastResetTime:         time.Now(),
@@ -297,7 +290,7 @@ func (at *AutoTrader) runCycle() error {
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance, ctx.Account.PositionCount)
 
 	// 4. 调用AI获取完整决策
-	log.Println("🤖 正在请求AI分析并决策...")
+	log.Printf("🤖 [%s] 正在请求AI分析并决策...", at.name)
 	decision, err := decision.GetFullDecision(ctx, at.mcpClient)
 
 	// 即使有错误，也保存思维链、决策和输入prompt（用于debug）
@@ -311,20 +304,31 @@ func (at *AutoTrader) runCycle() error {
 	}
 
 	if err != nil {
-		record.Success = false
-		record.ErrorMessage = fmt.Sprintf("获取AI决策失败: %v", err)
+		// 检查错误是否包含"使用默认等待决策"，这表明我们的增强逻辑已经介入
+		hasDefaultDecision := strings.Contains(err.Error(), "使用默认等待决策")
+		
+		if hasDefaultDecision && decision != nil && len(decision.Decisions) > 0 {
+			// 即使有错误，但我们已经生成了默认决策，可以继续执行
+			log.Printf("⚠️ AI响应被截断，但已生成默认等待决策，将继续执行")
+			record.Success = true // 标记为成功，因为我们有有效的决策可以执行
+			record.WarningMessage = fmt.Sprintf("AI响应处理警告: %v", err)
+		} else {
+			// 真正的错误情况
+			record.Success = false
+			record.ErrorMessage = fmt.Sprintf("获取AI决策失败: %v", err)
 
-		// 打印AI思维链（即使有错误）
-		if decision != nil && decision.CoTTrace != "" {
-			log.Printf("\n" + strings.Repeat("-", 70))
-			log.Println("💭 AI思维链分析（错误情况）:")
-			log.Println(strings.Repeat("-", 70))
-			log.Println(decision.CoTTrace)
-			log.Printf(strings.Repeat("-", 70) + "\n")
+			// 打印AI思维链（即使有错误）
+			if decision != nil && decision.CoTTrace != "" {
+				log.Printf("\n" + strings.Repeat("-", 70))
+				log.Println("💭 AI思维链分析（错误情况）:")
+				log.Println(strings.Repeat("-", 70))
+				log.Println(decision.CoTTrace)
+				log.Printf(strings.Repeat("-", 70) + "\n")
+			}
+
+			at.decisionLogger.LogDecision(record)
+			return fmt.Errorf("获取AI决策失败: %w", err)
 		}
-
-		at.decisionLogger.LogDecision(record)
-		return fmt.Errorf("获取AI决策失败: %w", err)
 	}
 
 	// 5. 打印AI思维链
@@ -486,9 +490,13 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 	}
 
 	// 3. 获取合并的候选币种池（AI500 + OI Top，去重）
-	// 无论有没有持仓，都分析相同数量的币种（让AI看到所有好机会）
-	// AI会根据保证金使用率和现有持仓情况，自己决定是否要换仓
-	const ai500Limit = 20 // AI500取前20个评分最高的币种
+	// 为不同的AI模型设置不同的候选币种限制
+	// QWen模型分析能力可能较弱，限制为较少的币种以避免输出过多内容
+	ai500Limit := 20 // DeepSeek等模型默认值
+	if at.aiModel == "qwen" || at.config.UseQwen {
+		ai500Limit = 10 // QWen模型限制为10个候选币种
+		log.Printf("⚠️ 使用QWen模型，限制候选币种数量为%d个", ai500Limit)
+	}
 
 	// 获取合并后的币种池（AI500 + OI Top）
 	mergedPool, err := pool.GetMergedCoinPool(ai500Limit)

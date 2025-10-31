@@ -24,6 +24,7 @@ type DecisionRecord struct {
 	ExecutionLog   []string           `json:"execution_log"`   // 执行日志
 	Success        bool               `json:"success"`         // 是否成功
 	ErrorMessage   string             `json:"error_message"`   // 错误信息（如果有）
+	WarningMessage string             `json:"warning_message"` // 警告信息（如果有）
 }
 
 // AccountSnapshot 账户状态快照
