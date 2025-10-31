@@ -23,6 +23,7 @@ type Data struct {
 	FundingRate       float64
 	IntradaySeries    *IntradayData
 	LongerTermContext *LongerTermData
+	TimeFrameData     map[string]*TimeFrameData // 存储不同时间周期的数据
 }
 
 // OIData Open Interest数据
@@ -63,6 +64,20 @@ type Kline struct {
 	CloseTime int64
 }
 
+// TimeFrameData 特定时间周期的数据
+type TimeFrameData struct {
+	Klines      []Kline
+	EMA20       float64
+	EMA50       float64
+	MACD        float64
+	RSI7        float64
+	RSI14       float64
+	ATR3        float64
+	ATR14       float64
+	Volume      float64
+	AvgVolume   float64
+}
+
 // Get 获取指定代币的市场数据
 func Get(symbol string) (*Data, error) {
 	// 标准化symbol
@@ -72,6 +87,30 @@ func Get(symbol string) (*Data, error) {
 	klines3m, err := getKlines(symbol, "3m", 40) // 多获取一些用于计算
 	if err != nil {
 		return nil, fmt.Errorf("获取3分钟K线失败: %v", err)
+	}
+
+	// 获取5分钟K线数据
+	klines5m, err := getKlines(symbol, "5m", 40)
+	if err != nil {
+		return nil, fmt.Errorf("获取5分钟K线失败: %v", err)
+	}
+
+	// 获取15分钟K线数据
+	klines15m, err := getKlines(symbol, "15m", 40)
+	if err != nil {
+		return nil, fmt.Errorf("获取15分钟K线失败: %v", err)
+	}
+
+	// 获取30分钟K线数据
+	klines30m, err := getKlines(symbol, "30m", 40)
+	if err != nil {
+		return nil, fmt.Errorf("获取30分钟K线失败: %v", err)
+	}
+
+	// 获取1小时K线数据
+	klines1h, err := getKlines(symbol, "1h", 40)
+	if err != nil {
+		return nil, fmt.Errorf("获取1小时K线失败: %v", err)
 	}
 
 	// 获取4小时K线数据 (最近10个)
@@ -121,6 +160,17 @@ func Get(symbol string) (*Data, error) {
 	// 计算长期数据
 	longerTermData := calculateLongerTermData(klines4h)
 
+	// 初始化时间周期数据映射
+	timeFrameData := make(map[string]*TimeFrameData)
+
+	// 计算并存储各时间周期的数据
+	timeFrameData["3m"] = calculateTimeFrameData(klines3m)
+	timeFrameData["5m"] = calculateTimeFrameData(klines5m)
+	timeFrameData["15m"] = calculateTimeFrameData(klines15m)
+	timeFrameData["30m"] = calculateTimeFrameData(klines30m)
+	timeFrameData["1h"] = calculateTimeFrameData(klines1h)
+	timeFrameData["4h"] = calculateTimeFrameData(klines4h)
+
 	return &Data{
 		Symbol:            symbol,
 		CurrentPrice:      currentPrice,
@@ -133,6 +183,7 @@ func Get(symbol string) (*Data, error) {
 		FundingRate:       fundingRate,
 		IntradaySeries:    intradayData,
 		LongerTermContext: longerTermData,
+		TimeFrameData:     timeFrameData,
 	}, nil
 }
 
@@ -340,6 +391,33 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 	return data
 }
 
+// calculateTimeFrameData 计算特定时间周期的数据
+func calculateTimeFrameData(klines []Kline) *TimeFrameData {
+	data := &TimeFrameData{
+		Klines:    klines,
+		EMA20:     calculateEMA(klines, 20),
+		EMA50:     calculateEMA(klines, 50),
+		MACD:      calculateMACD(klines),
+		RSI7:      calculateRSI(klines, 7),
+		RSI14:     calculateRSI(klines, 14),
+		ATR3:      calculateATR(klines, 3),
+		ATR14:     calculateATR(klines, 14),
+	}
+
+	// 计算成交量
+	if len(klines) > 0 {
+		data.Volume = klines[len(klines)-1].Volume
+		// 计算平均成交量
+		sum := 0.0
+		for _, k := range klines {
+			sum += k.Volume
+		}
+		data.AvgVolume = sum / float64(len(klines))
+	}
+
+	return data
+}
+
 // calculateLongerTermData 计算长期数据
 func calculateLongerTermData(klines []Kline) *LongerTermData {
 	data := &LongerTermData{
@@ -469,6 +547,22 @@ func Format(data *Data) string {
 
 	sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))
 
+	// 显示多时间周期数据
+	sb.WriteString("=== 多时间周期数据 ===\n\n")
+
+	// 按顺序输出不同时间周期的数据：3m, 5m, 15m, 30m, 1h, 4h
+	timeFrames := []string{"3m", "5m", "15m", "30m", "1h", "4h"}
+	for _, tf := range timeFrames {
+		if tfData, exists := data.TimeFrameData[tf]; exists {
+			sb.WriteString(fmt.Sprintf("[时间周期: %s]\n", tf))
+			sb.WriteString(fmt.Sprintf("EMA20: %.3f | EMA50: %.3f\n", tfData.EMA20, tfData.EMA50))
+			sb.WriteString(fmt.Sprintf("MACD: %.3f | RSI7: %.3f | RSI14: %.3f\n", tfData.MACD, tfData.RSI7, tfData.RSI14))
+			sb.WriteString(fmt.Sprintf("ATR3: %.3f | ATR14: %.3f\n", tfData.ATR3, tfData.ATR14))
+			sb.WriteString(fmt.Sprintf("Volume: %.3f | AvgVolume: %.3f\n\n", tfData.Volume, tfData.AvgVolume))
+		}
+	}
+
+	// 保留原有数据格式作为补充
 	if data.IntradaySeries != nil {
 		sb.WriteString("Intraday series (3‑minute intervals, oldest → latest):\n\n")
 
@@ -490,27 +584,6 @@ func Format(data *Data) string {
 
 		if len(data.IntradaySeries.RSI14Values) > 0 {
 			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI14Values)))
-		}
-	}
-
-	if data.LongerTermContext != nil {
-		sb.WriteString("Longer‑term context (4‑hour timeframe):\n\n")
-
-		sb.WriteString(fmt.Sprintf("20‑Period EMA: %.3f vs. 50‑Period EMA: %.3f\n\n",
-			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
-
-		sb.WriteString(fmt.Sprintf("3‑Period ATR: %.3f vs. 14‑Period ATR: %.3f\n\n",
-			data.LongerTermContext.ATR3, data.LongerTermContext.ATR14))
-
-		sb.WriteString(fmt.Sprintf("Current Volume: %.3f vs. Average Volume: %.3f\n\n",
-			data.LongerTermContext.CurrentVolume, data.LongerTermContext.AverageVolume))
-
-		if len(data.LongerTermContext.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.LongerTermContext.MACDValues)))
-		}
-
-		if len(data.LongerTermContext.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.LongerTermContext.RSI14Values)))
 		}
 	}
 
