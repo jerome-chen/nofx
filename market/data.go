@@ -83,20 +83,14 @@ func Get(symbol string) (*Data, error) {
 	// 标准化symbol
 	symbol = Normalize(symbol)
 
-	// 获取3分钟K线数据 (最近10个)
-	klines3m, err := getKlines(symbol, "3m", 40) // 多获取一些用于计算
-	if err != nil {
-		return nil, fmt.Errorf("获取3分钟K线失败: %v", err)
-	}
-
 	// 获取5分钟K线数据
 	klines5m, err := getKlines(symbol, "5m", 40)
 	if err != nil {
 		return nil, fmt.Errorf("获取5分钟K线失败: %v", err)
 	}
 
-	// 获取15分钟K线数据
-	klines15m, err := getKlines(symbol, "15m", 40)
+	// 获取15分钟K线数据 (最近10个)
+	klines15m, err := getKlines(symbol, "15m", 40) // 多获取一些用于计算
 	if err != nil {
 		return nil, fmt.Errorf("获取15分钟K线失败: %v", err)
 	}
@@ -113,23 +107,29 @@ func Get(symbol string) (*Data, error) {
 		return nil, fmt.Errorf("获取1小时K线失败: %v", err)
 	}
 
-	// 获取4小时K线数据 (最近10个)
+	// 获取4小时K线数据
 	klines4h, err := getKlines(symbol, "4h", 60) // 多获取用于计算指标
 	if err != nil {
 		return nil, fmt.Errorf("获取4小时K线失败: %v", err)
 	}
 
-	// 计算当前指标 (基于3分钟最新数据)
-	currentPrice := klines3m[len(klines3m)-1].Close
-	currentEMA20 := calculateEMA(klines3m, 20)
-	currentMACD := calculateMACD(klines3m)
-	currentRSI7 := calculateRSI(klines3m, 7)
+	// 获取1天K线数据
+	klines1d, err := getKlines(symbol, "1d", 60)
+	if err != nil {
+		return nil, fmt.Errorf("获取1天K线失败: %v", err)
+	}
+
+	// 计算当前指标 (基于15分钟最新数据)
+	currentPrice := klines15m[len(klines15m)-1].Close
+	currentEMA20 := calculateEMA(klines15m, 20)
+	currentMACD := calculateMACD(klines15m)
+	currentRSI7 := calculateRSI(klines15m, 7)
 
 	// 计算价格变化百分比
-	// 1小时价格变化 = 20个3分钟K线前的价格
+	// 1小时价格变化 = 4个15分钟K线前的价格
 	priceChange1h := 0.0
-	if len(klines3m) >= 21 { // 至少需要21根K线 (当前 + 20根前)
-		price1hAgo := klines3m[len(klines3m)-21].Close
+	if len(klines15m) >= 5 { // 至少需要5根K线 (当前 + 4根前)
+		price1hAgo := klines15m[len(klines15m)-5].Close
 		if price1hAgo > 0 {
 			priceChange1h = ((currentPrice - price1hAgo) / price1hAgo) * 100
 		}
@@ -144,6 +144,7 @@ func Get(symbol string) (*Data, error) {
 		}
 	}
 
+
 	// 获取OI数据
 	oiData, err := getOpenInterestData(symbol)
 	if err != nil {
@@ -155,7 +156,7 @@ func Get(symbol string) (*Data, error) {
 	fundingRate, _ := getFundingRate(symbol)
 
 	// 计算日内系列数据
-	intradayData := calculateIntradaySeries(klines3m)
+	intradayData := calculateIntradaySeries(klines15m)
 
 	// 计算长期数据
 	longerTermData := calculateLongerTermData(klines4h)
@@ -164,12 +165,12 @@ func Get(symbol string) (*Data, error) {
 	timeFrameData := make(map[string]*TimeFrameData)
 
 	// 计算并存储各时间周期的数据
-	timeFrameData["3m"] = calculateTimeFrameData(klines3m)
 	timeFrameData["5m"] = calculateTimeFrameData(klines5m)
 	timeFrameData["15m"] = calculateTimeFrameData(klines15m)
 	timeFrameData["30m"] = calculateTimeFrameData(klines30m)
 	timeFrameData["1h"] = calculateTimeFrameData(klines1h)
 	timeFrameData["4h"] = calculateTimeFrameData(klines4h)
+	timeFrameData["1d"] = calculateTimeFrameData(klines1d)
 
 	return &Data{
 		Symbol:            symbol,
@@ -550,8 +551,8 @@ func Format(data *Data) string {
 	// 显示多时间周期数据
 	sb.WriteString("=== 多时间周期数据 ===\n\n")
 
-	// 按顺序输出不同时间周期的数据：3m, 5m, 15m, 30m, 1h, 4h
-	timeFrames := []string{"3m", "5m", "15m", "30m", "1h", "4h"}
+	// 按顺序输出不同时间周期的数据：15m, 1h, 4h, 1d
+	timeFrames := []string{"15m", "1h", "4h", "1d"}
 	for _, tf := range timeFrames {
 		if tfData, exists := data.TimeFrameData[tf]; exists {
 			sb.WriteString(fmt.Sprintf("[时间周期: %s]\n", tf))
@@ -564,7 +565,7 @@ func Format(data *Data) string {
 
 	// 保留原有数据格式作为补充
 	if data.IntradaySeries != nil {
-		sb.WriteString("Intraday series (3‑minute intervals, oldest → latest):\n\n")
+		sb.WriteString("Intraday series (15‑minute intervals, oldest → latest):\n\n")
 
 		if len(data.IntradaySeries.MidPrices) > 0 {
 			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
