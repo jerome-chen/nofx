@@ -504,24 +504,14 @@ func buildUserPrompt(ctx *Context) string {
 	var sb strings.Builder
 
 	// 系统状态
-	sb.WriteString(fmt.Sprintf("自开始交易以来已过去 %d 分钟。\n\n", ctx.RuntimeMinutes))
-	sb.WriteString(fmt.Sprintf("**时间**: %s | **周期**: #%d\n\n", ctx.CurrentTime, ctx.CallCount))
-	sb.WriteString("⚠️ **重要提示: 所有价格和信号数据均按以下顺序排列：最旧→最新**\n\n")
+	sb.WriteString(fmt.Sprintf("**时间**: %s | **周期**: #%d | **运行**: %d分钟\n\n",
+		ctx.CurrentTime, ctx.CallCount, ctx.RuntimeMinutes))
 
 	// BTC 市场
 	if btcData, hasBTC := ctx.MarketDataMap["BTCUSDT"]; hasBTC {
-		sb.WriteString("## BTC 市场数据\n\n")
-		sb.WriteString("**当前快照**:\n")
-		sb.WriteString(fmt.Sprintf("- 当前价格: %.2f\n", btcData.CurrentPrice))
-		sb.WriteString(fmt.Sprintf("- 1小时变化: %+.2f%%\n", btcData.PriceChange1h))
-		sb.WriteString(fmt.Sprintf("- 4小时变化: %+.2f%%\n", btcData.PriceChange4h))
-		sb.WriteString(fmt.Sprintf("- MACD: %.4f\n", btcData.CurrentMACD))
-		sb.WriteString(fmt.Sprintf("- RSI: %.2f\n\n", btcData.CurrentRSI7))
-		sb.WriteString("**期货指标**:\n")
-		if btcData.OpenInterest != nil {
-			sb.WriteString(fmt.Sprintf("- 持仓量: 最新 %.0f\n", btcData.OpenInterest.Latest))
-		}
-		sb.WriteString(fmt.Sprintf("- 资金费率: %+.6f\n\n", btcData.FundingRate))
+		sb.WriteString(fmt.Sprintf("**BTC**: %.2f (1h: %+.2f%%, 4h: %+.2f%%) | MACD: %.4f | RSI: %.2f\n\n",
+			btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h,
+			btcData.CurrentMACD, btcData.CurrentRSI7))
 	}
 
 	// 账户
@@ -585,7 +575,6 @@ func buildUserPrompt(ctx *Context) string {
 
 		// 使用FormatMarketData输出完整市场数据
 		sb.WriteString(fmt.Sprintf("### %d. %s%s\n\n", displayedCount, coin.Symbol, sourceTags))
-		sb.WriteString("**📊 短期数据 (3分钟间隔，最旧→最新)**\n\n")
 		sb.WriteString(market.Format(marketData))
 		sb.WriteString("\n")
 	}
@@ -679,7 +668,7 @@ func extractDecisions(response string) ([]Decision, error) {
 		// 如果找不到匹配的结束括号，尝试从开始括号开始解析可能的决策
 		// 截取从[开始的子串，并尝试在末尾添加可能的闭合结构
 		partialJSON := response[arrayStart:]
-		
+
 		// 统计括号深度
 		depth := 1
 		var i int
@@ -695,7 +684,7 @@ func extractDecisions(response string) ([]Decision, error) {
 				}
 			}
 		}
-		
+
 		// 如果仍然找不到结束括号，返回错误
 		if depth != 0 {
 			return nil, fmt.Errorf("无法找到JSON数组结束")
@@ -707,7 +696,7 @@ func extractDecisions(response string) ([]Decision, error) {
 	// 🔧 修复常见的JSON格式错误：
 	// 1. 修复中文引号
 	jsonContent = fixMissingQuotes(jsonContent)
-	
+
 	// 2. 尝试修复可能的截断问题
 	jsonContent = attemptToFixTruncatedJSON(jsonContent)
 
@@ -735,12 +724,12 @@ func attemptToFixTruncatedJSON(jsonStr string) string {
 	if strings.HasSuffix(jsonStr, "]") {
 		return jsonStr // 看起来是完整的JSON
 	}
-	
+
 	// 尝试添加缺失的括号
 	// 统计括号数量
 	openBrackets := strings.Count(jsonStr, "[")
 	closeBrackets := strings.Count(jsonStr, "]")
-	
+
 	// 修复数组括号
 	if openBrackets > closeBrackets {
 		// 添加缺少的关闭括号
@@ -748,11 +737,11 @@ func attemptToFixTruncatedJSON(jsonStr string) string {
 			jsonStr += "]"
 		}
 	}
-	
+
 	// 检查对象括号
 	openObjects := strings.Count(jsonStr, "{")
 	closeObjects := strings.Count(jsonStr, "}")
-	
+
 	// 修复对象括号
 	if openObjects > closeObjects {
 		// 添加缺少的关闭对象括号
@@ -764,7 +753,7 @@ func attemptToFixTruncatedJSON(jsonStr string) string {
 			jsonStr += "]"
 		}
 	}
-	
+
 	return jsonStr
 }
 
@@ -776,10 +765,10 @@ func generateDefaultDecision(cotTrace string) Decision {
 		Action:    "wait",
 		Reasoning: "AI响应被截断，未能提取到结构化决策。根据思维链分析，当前市场状态不适合开仓操作。",
 	}
-	
+
 	// 尝试从思维链中提取关键信息
 	lowerTrace := strings.ToLower(cotTrace)
-	
+
 	// 检查是否有明确的市场趋势判断
 	if strings.Contains(lowerTrace, "下降趋势") || strings.Contains(lowerTrace, "下跌趋势") {
 		decision.Reasoning += " 检测到市场处于下降趋势。"
@@ -788,12 +777,12 @@ func generateDefaultDecision(cotTrace string) Decision {
 	} else if strings.Contains(lowerTrace, "震荡") || strings.Contains(lowerTrace, "盘整") {
 		decision.Reasoning += " 检测到市场处于震荡状态。"
 	}
-	
+
 	// 检查夏普比率
 	if strings.Contains(lowerTrace, "夏普比率") {
 		decision.Reasoning += " 系统正在分析夏普比率表现。"
 	}
-	
+
 	return decision
 }
 
