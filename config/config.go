@@ -11,6 +11,10 @@ import (
 type TraderConfig struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
+<<<<<<< HEAD
+=======
+	Enabled bool   `json:"enabled"` // 是否启用该trader
+>>>>>>> 23fb34c58a6e353c6b8d60b6374b74ce4f246498
 	AIModel string `json:"ai_model"` // "qwen" or "deepseek"
 
 	// 交易平台选择（二选一）
@@ -22,6 +26,7 @@ type TraderConfig struct {
 
 	// Hyperliquid配置
 	HyperliquidPrivateKey string `json:"hyperliquid_private_key,omitempty"`
+	HyperliquidWalletAddr string `json:"hyperliquid_wallet_addr,omitempty"`
 	HyperliquidTestnet    bool   `json:"hyperliquid_testnet,omitempty"`
 
 	// Aster配置
@@ -32,7 +37,10 @@ type TraderConfig struct {
 	// AI配置
 	QwenKey     string `json:"qwen_key,omitempty"`
 	DeepSeekKey string `json:"deepseek_key,omitempty"`
+<<<<<<< HEAD
 	GrokKey     string `json:"grok_key,omitempty"`
+=======
+>>>>>>> 23fb34c58a6e353c6b8d60b6374b74ce4f246498
 
 	// 自定义AI API配置（支持任何OpenAI格式的API）
 	CustomAPIURL    string `json:"custom_api_url,omitempty"`
