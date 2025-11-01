@@ -126,9 +126,6 @@ func (c *Config) Validate() error {
 		if trader.AIModel != "qwen" && trader.AIModel != "deepseek" && trader.AIModel != "grok" && trader.AIModel != "custom" {
 			return fmt.Errorf("trader[%d]: ai_model必须是 'qwen', 'deepseek', 'grok' 或 'custom'", i)
 		}
-		if trader.BinanceAPIKey == "" || trader.BinanceSecretKey == "" {
-			return fmt.Errorf("trader[%d]: 币安API密钥不能为空", i)
-		}
 
 		// 验证交易平台配置
 		if trader.Exchange == "" {
