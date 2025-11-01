@@ -277,6 +277,13 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("⚠️ 重要杠杆限制：\n")
 	sb.WriteString(fmt.Sprintf("* BTC/ETH 最大杠杆: %d倍\n", btcEthLeverage))
 	sb.WriteString(fmt.Sprintf("* 山寨币最大杠杆: %d倍\n\n", altcoinLeverage))
+		if len(pairLeverage) > 0 {
+		sb.WriteString("    * 特定交易对限制：\n")
+		for pair, leverage := range pairLeverage {
+			sb.WriteString(fmt.Sprintf("      - %s交易对：最大杠杆：%d倍\n", pair, leverage))
+		}
+	}
+
 	sb.WriteString("按信心度动态调整杠杆（但不能超过最大杠杆限制）：\n\n")
 	sb.WriteString("| 信心度         | 杠杆范围      | 仓位比例（账户净值） | \n")
 	sb.WriteString("| ----------- | --------- | ---------- | \n")
