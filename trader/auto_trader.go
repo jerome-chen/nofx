@@ -56,8 +56,9 @@ type AutoTraderConfig struct {
 	InitialBalance float64 // 初始金额（用于计算盈亏，需手动设置）
 
 	// 杠杆配置
-	BTCETHLeverage  int // BTC和ETH的杠杆倍数
-	AltcoinLeverage int // 山寨币的杠杆倍数
+	BTCETHLeverage  int            // BTC和ETH的杠杆倍数
+	AltcoinLeverage int            // 山寨币的杠杆倍数
+	PairLeverage    map[string]int // 特定交易对的杠杆倍数
 
 	// 风险控制（仅作为提示，AI可自主决定）
 	MaxDailyLoss    float64       // 最大日亏损百分比（提示）
@@ -538,6 +539,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		CallCount:       at.callCount,
 		BTCETHLeverage:  at.config.BTCETHLeverage,  // 使用配置的杠杆倍数
 		AltcoinLeverage: at.config.AltcoinLeverage, // 使用配置的杠杆倍数
+		PairLeverage:    at.config.PairLeverage,    // 使用配置的交易对特定杠杆
 		Account: decision.AccountInfo{
 			TotalEquity:      totalEquity,
 			AvailableBalance: availableBalance,

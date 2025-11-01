@@ -45,12 +45,21 @@ func (tm *TraderManager) AddTrader(cfg config.TraderConfig, coinPoolURL string, 
 		log.Printf("ℹ️  %s 使用交易员级别的山寨币杠杆配置: %dx", cfg.Name, altcoinLeverage)
 	}
 
+	// 确定使用的交易对杠杆配置
+	var pairLeverage map[string]int
+	if cfg.PairLeverage != nil && len(cfg.PairLeverage) > 0 {
+		pairLeverage = cfg.PairLeverage
+		log.Printf("ℹ️  %s 使用交易员级别的交易对杠杆配置", cfg.Name)
+	} else if leverage.PairLeverage != nil && len(leverage.PairLeverage) > 0 {
+		pairLeverage = leverage.PairLeverage
+	}
+
 	// 构建AutoTraderConfig
 	traderConfig := trader.AutoTraderConfig{
 		ID:                    cfg.ID,
 		Name:                  cfg.Name,
-		AIModel:               cfg.AIModel,
 		Exchange:              cfg.Exchange,
+		AIModel:               cfg.AIModel,
 		BinanceAPIKey:         cfg.BinanceAPIKey,
 		BinanceSecretKey:      cfg.BinanceSecretKey,
 		HyperliquidPrivateKey: cfg.HyperliquidPrivateKey,
@@ -66,10 +75,11 @@ func (tm *TraderManager) AddTrader(cfg config.TraderConfig, coinPoolURL string, 
 		CustomAPIURL:          cfg.CustomAPIURL,
 		CustomAPIKey:          cfg.CustomAPIKey,
 		CustomModelName:       cfg.CustomModelName,
-		ScanInterval:          cfg.GetScanInterval(),
+		ScanInterval:          time.Duration(cfg.ScanIntervalMinutes) * time.Minute,
 		InitialBalance:        cfg.InitialBalance,
 		BTCETHLeverage:        btcEthLeverage,  // 使用确定的杠杆倍数
 		AltcoinLeverage:       altcoinLeverage, // 使用确定的杠杆倍数
+		PairLeverage:          pairLeverage,    // 使用确定的交易对杠杆配置
 		MaxDailyLoss:          maxDailyLoss,
 		MaxDrawdown:           maxDrawdown,
 		StopTradingTime:       time.Duration(stopTradingMinutes) * time.Minute,
