@@ -438,16 +438,23 @@ func (t *AsterTrader) GetBalance() (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	// 查找USDT余额
+	// 先累加所有稳定币的总余额
 	totalBalance := 0.0
+	for _, bal := range balances {
+		if asset, ok := bal["asset"].(string); ok && (asset == "USDT" || asset == "USDC" || asset == "USDF") {
+			if wb, ok := bal["balance"].(string); ok {
+				if balance, err := strconv.ParseFloat(wb, 64); err == nil {
+					totalBalance += balance
+				}
+			}
+		}
+	}
+
+	// 然后在循环中处理availableBalance和crossUnPnl
 	availableBalance := 0.0
 	crossUnPnl := 0.0
-
 	for _, bal := range balances {
-		if asset, ok := bal["asset"].(string); ok && asset == "USDT" {
-			if wb, ok := bal["balance"].(string); ok {
-				totalBalance, _ = strconv.ParseFloat(wb, 64)
-			}
+		if asset, ok := bal["asset"].(string); ok && (asset == "USDT" || asset == "USDC" || asset == "USDF") {
 			if avail, ok := bal["availableBalance"].(string); ok {
 				availableBalance, _ = strconv.ParseFloat(avail, 64)
 			}
