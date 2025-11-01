@@ -43,7 +43,6 @@ type AutoTraderConfig struct {
 	UseQwen     bool
 	DeepSeekKey string
 	QwenKey     string
-	GrokKey     string
 
 	// 自定义AI API配置
 	CustomAPIURL    string
@@ -114,9 +113,7 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 		// 使用Qwen
 		mcpClient.SetQwenAPIKey(config.QwenKey, "")
 		log.Printf("🤖 [%s] 使用阿里云Qwen AI", config.Name)
-	} else if config.AIModel == "grok" {
-		mcpClient.SetGrokAPIKey(config.GrokKey)
-		log.Printf("🤖 [%s] 使用Grok AI", config.Name)
+		// Grok实现已移除，推荐使用custom模式
 	} else {
 		// 默认使用DeepSeek
 		mcpClient.SetDeepSeekAPIKey(config.DeepSeekKey)
@@ -761,8 +758,7 @@ func (at *AutoTrader) GetStatus() map[string]interface{} {
 	switch at.config.AIModel {
 	case "qwen":
 		aiProvider = "Qwen"
-	case "grok":
-		aiProvider = "Grok"
+		// Grok实现已移除
 	case "deepseek":
 		fallthrough
 	default:

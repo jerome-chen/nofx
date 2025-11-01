@@ -34,7 +34,6 @@ type TraderConfig struct {
 	// AI配置
 	QwenKey     string `json:"qwen_key,omitempty"`
 	DeepSeekKey string `json:"deepseek_key,omitempty"`
-	GrokKey     string `json:"grok_key,omitempty"`
 
 	// 自定义AI API配置（支持任何OpenAI格式的API）
 	CustomAPIURL    string `json:"custom_api_url,omitempty"`
@@ -127,9 +126,9 @@ func (c *Config) Validate() error {
 		if trader.Name == "" {
 			return fmt.Errorf("trader[%d]: Name不能为空", i)
 		}
-		if trader.AIModel != "qwen" && trader.AIModel != "deepseek" && trader.AIModel != "grok" && trader.AIModel != "custom" {
-			return fmt.Errorf("trader[%d]: ai_model必须是 'qwen', 'deepseek', 'grok' 或 'custom'", i)
-		}
+		if trader.AIModel != "qwen" && trader.AIModel != "deepseek" && trader.AIModel != "custom" {
+		return fmt.Errorf("trader[%d]: ai_model必须是 'qwen', 'deepseek' 或 'custom'", i)
+	}
 
 		// 验证交易平台配置
 		if trader.Exchange == "" {
@@ -160,9 +159,7 @@ func (c *Config) Validate() error {
 		if trader.AIModel == "deepseek" && trader.DeepSeekKey == "" {
 			return fmt.Errorf("trader[%d]: 使用DeepSeek时必须配置deepseek_key", i)
 		}
-		if trader.AIModel == "grok" && trader.GrokKey == "" {
-			return fmt.Errorf("trader[%d]: 使用Grok时必须配置grok_key", i)
-		}
+		// Grok实现已移除，不再需要相关配置验证
 		if trader.AIModel == "custom" {
 			if trader.CustomAPIURL == "" {
 				return fmt.Errorf("trader[%d]: 使用自定义API时必须配置custom_api_url", i)

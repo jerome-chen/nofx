@@ -15,7 +15,6 @@ type Provider string
 
 const (
 	ProviderDeepSeek Provider = "deepseek"
-	ProviderGrok     Provider = "grok"
 	ProviderQwen     Provider = "qwen"
 	ProviderCustom   Provider = "custom"
 )
@@ -59,13 +58,8 @@ func (cfg *Client) SetQwenAPIKey(apiKey, secretKey string) {
 	cfg.Model = "qwen-plus" // 可选: qwen-turbo, qwen-plus, qwen-max
 }
 
-// SetGrokAPIKey 设置Grok API密钥
-func (cfg *Client) SetGrokAPIKey(apiKey string) {
-	cfg.Provider = ProviderGrok
-	cfg.APIKey = apiKey
-	cfg.BaseURL = "https://api.groq.com/openai/v1"
-	cfg.Model = "gemma-7b-it"
-}
+// 自定义API设置方法已足够灵活，不再需要特定的Grok实现
+
 
 // SetCustomAPI 设置自定义OpenAI兼容API
 func (cfg *Client) SetCustomAPI(apiURL, apiKey, modelName string) {
@@ -187,8 +181,7 @@ func (cfg *Client) callOnce(systemPrompt, userPrompt string) (string, error) {
 	// 根据不同的Provider设置认证方式
 	switch cfg.Provider {
 	case ProviderDeepSeek:
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.APIKey))
-	case ProviderGrok:
+		// 确保DeepSeek的认证设置正确保留
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.APIKey))
 	case ProviderQwen:
 		// 阿里云Qwen使用API-Key认证

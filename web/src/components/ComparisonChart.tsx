@@ -177,8 +177,6 @@ export function ComparisonChart({ traders }: ComparisonChartProps) {
     const trader = traders.find((t) => t.trader_id === traderId);
     if (trader?.ai_model === 'qwen') {
       return '#c084fc'; // purple-400 (更亮)
-    } else if (trader?.ai_model === 'grok') {
-      return '#11a37f'; // green-500
     } else {
       return '#60a5fa'; // blue-400 (更亮)
     }
