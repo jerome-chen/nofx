@@ -257,7 +257,10 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	// 🧮 资金与仓位控制
 	sb.WriteString("# 🧮 资金与仓位控制\n\n")
 	sb.WriteString("**Position Size (USD)** = 可用资金 × 杠杆 × 仓位比例\n")
-	sb.WriteString("按信心度动态调整：\n\n")
+	sb.WriteString("⚠️ 重要杠杆限制：\n")
+	sb.WriteString(fmt.Sprintf("* BTC/ETH 最大杠杆: %d倍\n", btcEthLeverage))
+	sb.WriteString(fmt.Sprintf("* 山寨币最大杠杆: %d倍\n\n", altcoinLeverage))
+	sb.WriteString("按信心度动态调整杠杆（但不能超过最大杠杆限制）：\n\n")
 	sb.WriteString("| 信心度         | 杠杆范围      | 仓位比例（账户净值） | \n")
 	sb.WriteString("| ----------- | --------- | ---------- | \n")
 	sb.WriteString("| 0.60 – 0.75 | 3 – 5 x   | 10 % 以内    | \n")
@@ -571,18 +574,23 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 	}
 
 	// 开仓操作必须提供完整参数
-	if d.Action == "open_long" || d.Action == "open_short" {
-		// 根据币种使用配置的杠杆上限
-		maxLeverage := altcoinLeverage          // 山寨币使用配置的杠杆
-		maxPositionValue := accountEquity * 1.5 // 山寨币最多1.5倍账户净值
-		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-			maxLeverage = btcEthLeverage          // BTC和ETH使用配置的杠杆
-			maxPositionValue = accountEquity * 10 // BTC/ETH最多10倍账户净值
-		}
+		if d.Action == "open_long" || d.Action == "open_short" {
+			// 根据币种使用配置的杠杆上限
+			maxLeverage := altcoinLeverage          // 山寨币使用配置的杠杆
+			maxPositionValue := accountEquity * 1.5 // 山寨币最多1.5倍账户净值
+			if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
+				maxLeverage = btcEthLeverage          // BTC和ETH使用配置的杠杆
+				maxPositionValue = accountEquity * 10 // BTC/ETH最多10倍账户净值
+			}
 
-		if d.Leverage <= 0 || d.Leverage > maxLeverage {
-			return fmt.Errorf("杠杆必须在1-%d之间（%s，当前配置上限%d倍）: %d", maxLeverage, d.Symbol, maxLeverage, d.Leverage)
-		}
+			// 修正杠杆值：如果小于等于0或超过配置上限，则自动修正
+			if d.Leverage <= 0 {
+				d.Leverage = 1 // 设置为最小杠杆倍数
+				log.Printf("⚠️  修正杠杆值: %s 的杠杆被修正为1倍（原杠杆≤0）", d.Symbol)
+			} else if d.Leverage > maxLeverage {
+				d.Leverage = maxLeverage // 设置为配置的最大杠杆倍数
+				log.Printf("⚠️  修正杠杆值: %s 的杠杆被修正为%d倍（原杠杆%d超过配置上限）", d.Symbol, maxLeverage, d.Leverage)
+			}
 		if d.PositionSizeUSD <= 0 {
 			return fmt.Errorf("仓位大小必须大于0: %.2f", d.PositionSizeUSD)
 		}
