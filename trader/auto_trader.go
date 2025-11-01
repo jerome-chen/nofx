@@ -490,13 +490,9 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 	}
 
 	// 3. 获取合并的候选币种池（AI500 + OI Top，去重）
-	// 为不同的AI模型设置不同的候选币种限制
-	// QWen模型分析能力可能较弱，限制为较少的币种以避免输出过多内容
-	ai500Limit := 20 // DeepSeek等模型默认值
-	if at.aiModel == "qwen" || at.config.UseQwen {
-		ai500Limit = 10 // QWen模型限制为10个候选币种
-		log.Printf("⚠️ 使用QWen模型，限制候选币种数量为%d个", ai500Limit)
-	}
+	// 设置候选币种数量
+	// 不再为任何模型设置数量限制
+	ai500Limit := 20 // 所有模型使用相同的值
 
 	// 获取合并后的币种池（AI500 + OI Top）
 	mergedPool, err := pool.GetMergedCoinPool(ai500Limit)
