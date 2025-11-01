@@ -31,6 +31,20 @@ func (tm *TraderManager) AddTrader(cfg config.TraderConfig, coinPoolURL string, 
 		return fmt.Errorf("trader ID '%s' 已存在", cfg.ID)
 	}
 
+	// 确定使用交易员级别的杠杆配置还是根级别的配置
+	// 如果交易员级别设置了杠杆配置，则使用交易员级别的配置，否则使用根级别的配置
+	btcEthLeverage := leverage.BTCETHLeverage
+	if cfg.BTCETHLeverage > 0 {
+		btcEthLeverage = cfg.BTCETHLeverage
+		log.Printf("ℹ️  %s 使用交易员级别的BTC/ETH杠杆配置: %dx", cfg.Name, btcEthLeverage)
+	}
+
+	altcoinLeverage := leverage.AltcoinLeverage
+	if cfg.AltcoinLeverage > 0 {
+		altcoinLeverage = cfg.AltcoinLeverage
+		log.Printf("ℹ️  %s 使用交易员级别的山寨币杠杆配置: %dx", cfg.Name, altcoinLeverage)
+	}
+
 	// 构建AutoTraderConfig
 	traderConfig := trader.AutoTraderConfig{
 		ID:                    cfg.ID,
@@ -54,8 +68,8 @@ func (tm *TraderManager) AddTrader(cfg config.TraderConfig, coinPoolURL string, 
 		CustomModelName:       cfg.CustomModelName,
 		ScanInterval:          cfg.GetScanInterval(),
 		InitialBalance:        cfg.InitialBalance,
-		BTCETHLeverage:        leverage.BTCETHLeverage,  // 使用配置的杠杆倍数
-		AltcoinLeverage:       leverage.AltcoinLeverage, // 使用配置的杠杆倍数
+		BTCETHLeverage:        btcEthLeverage,  // 使用确定的杠杆倍数
+		AltcoinLeverage:       altcoinLeverage, // 使用确定的杠杆倍数
 		MaxDailyLoss:          maxDailyLoss,
 		MaxDrawdown:           maxDrawdown,
 		StopTradingTime:       time.Duration(stopTradingMinutes) * time.Minute,

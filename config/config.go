@@ -41,6 +41,10 @@ type TraderConfig struct {
 	CustomAPIKey    string `json:"custom_api_key,omitempty"`
 	CustomModelName string `json:"custom_model_name,omitempty"`
 
+	// 杠杆配置（交易员级别，如果设置则覆盖根级别的配置）
+	BTCETHLeverage  int `json:"btc_eth_leverage,omitempty"`  // BTC和ETH的杠杆倍数（主账户建议5-50，子账户≤5）
+	AltcoinLeverage int `json:"altcoin_leverage,omitempty"` // 山寨币的杠杆倍数（主账户建议5-20，子账户≤5）
+
 	InitialBalance      float64 `json:"initial_balance"`
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 }
