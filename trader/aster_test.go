@@ -128,95 +128,100 @@ func TestUpdateTimeHandling(t *testing.T) {
 	log.Println("TestUpdateTimeHandling completed successfully!")
 }
 
-// 测试auto_trader.go中的firstSeen机制
-func TestPositionFirstSeenMechanism(t *testing.T) {
+// 测试auto_trader.go中的交易记录机制
+func TestTradeTrackingMechanism(t *testing.T) {
 	// 创建模拟的AutoTrader实例
 	at := &AutoTrader{
-		positionFirstSeenTime: make(map[string]int64),
+		openTrades: make(map[string]*RecentTrade),
 	}
 	
-	// 测试场景1：API返回有效的updateTime
-	t.Run("APIProvidesUpdateTime", func(t *testing.T) {
+	// 测试场景1：API返回有效的updateTime，创建新的交易记录
+	t.Run("CreateNewTradeRecord", func(t *testing.T) {
 		posKey := "BTCUSDT_long"
-		apiUpdateTime := int64(time.Now().UnixMilli() - 30*60*1000)
-		pos := map[string]interface{}{
-			"updateTime": apiUpdateTime,
+		apiUpdateTime := time.Now().Add(-30 * time.Minute)
+		
+		// 模拟创建新交易记录
+		at.openTrades[posKey] = &RecentTrade{
+			Symbol:   "BTCUSDT",
+			Side:     "LONG",
+			OpenTime: apiUpdateTime,
 		}
 		
-		// 模拟auto_trader.go中的逻辑
-		updateTime, ok := pos["updateTime"].(int64)
-		if !ok || updateTime == 0 {
-			// 这个分支不应该执行
-			updateTime = time.Now().UnixMilli()
-		} else {
-			// 更新本地记录
-			at.positionFirstSeenTime[posKey] = updateTime
+		// 验证交易记录被创建
+		if trade, exists := at.openTrades[posKey]; !exists {
+			t.Errorf("Expected trade record to exist for %s", posKey)
+		} else if !trade.OpenTime.Equal(apiUpdateTime) {
+			t.Errorf("Expected open time %v, got %v", apiUpdateTime, trade.OpenTime)
 		}
 		
-		// 验证本地记录被更新
-		if storedTime, exists := at.positionFirstSeenTime[posKey]; !exists || storedTime != apiUpdateTime {
-			t.Errorf("Expected stored time %d, got %d (exists: %v)", apiUpdateTime, storedTime, exists)
-		}
-		
-		log.Printf("API provided updateTime stored: %d", updateTime)
+		log.Printf("New trade record created with open time: %v", apiUpdateTime)
 	})
 	
-	// 测试场景2：API不提供updateTime，使用本地记录
-	t.Run("UseLocalFirstSeenTime", func(t *testing.T) {
+	// 测试场景2：使用本地已有的交易记录
+	t.Run("UseExistingTradeRecord", func(t *testing.T) {
 		posKey := "ETHUSDT_short"
 		// 先设置本地记录
-		localFirstSeenTime := int64(time.Now().UnixMilli() - 20*60*1000)
-		at.positionFirstSeenTime[posKey] = localFirstSeenTime
-		
-		// 模拟没有updateTime的API响应
-		pos := map[string]interface{}{}
-		
-		// 模拟auto_trader.go中的逻辑
-		updateTime, ok := pos["updateTime"].(int64)
-		if !ok || updateTime == 0 {
-			if firstSeenTime, exists := at.positionFirstSeenTime[posKey]; exists {
-				updateTime = firstSeenTime
-			} else {
-				updateTime = time.Now().UnixMilli()
-				at.positionFirstSeenTime[posKey] = updateTime
-			}
+		localOpenTime := time.Now().Add(-20 * time.Minute)
+		at.openTrades[posKey] = &RecentTrade{
+			Symbol:   "ETHUSDT",
+			Side:     "SHORT",
+			OpenTime: localOpenTime,
 		}
 		
-		// 验证使用了本地记录
-		if updateTime != localFirstSeenTime {
-			t.Errorf("Expected to use local time %d, got %d", localFirstSeenTime, updateTime)
+		// 模拟获取已存在的交易记录
+		trade, exists := at.openTrades[posKey]
+		if !exists {
+			t.Errorf("Expected trade record to exist for %s", posKey)
 		}
 		
-		log.Printf("Local firstSeenTime used: %d", updateTime)
+		// 验证使用了本地记录的时间
+		if !trade.OpenTime.Equal(localOpenTime) {
+			t.Errorf("Expected to use local open time %v, got %v", localOpenTime, trade.OpenTime)
+		}
+		
+		// 计算持仓时长
+		duration := time.Since(trade.OpenTime)
+		log.Printf("Local trade record used: open time %v, duration %v", trade.OpenTime, duration)
 	})
 	
-	// 测试场景3：API不提供updateTime，且本地没有记录
-	t.Run("CreateNewFirstSeenTime", func(t *testing.T) {
+	// 测试场景3：平仓并移至recentTrades
+	t.Run("CloseTradeAndMoveToRecent", func(t *testing.T) {
 		posKey := "SOLUSDT_long"
-		// 确保本地没有记录
-		delete(at.positionFirstSeenTime, posKey)
+		symbol := "SOLUSDT"
 		
-		// 模拟没有updateTime的API响应
-		pos := map[string]interface{}{}
-		
-		// 模拟auto_trader.go中的逻辑
-		updateTime, ok := pos["updateTime"].(int64)
-		if !ok || updateTime == 0 {
-			if firstSeenTime, exists := at.positionFirstSeenTime[posKey]; exists {
-				updateTime = firstSeenTime
-			} else {
-				updateTime = time.Now().UnixMilli()
-				at.positionFirstSeenTime[posKey] = updateTime
-			}
+		// 先创建持仓记录
+		openTime := time.Now().Add(-15 * time.Minute)
+		at.openTrades[posKey] = &RecentTrade{
+			Symbol:     symbol,
+			Side:       "LONG",
+			EntryPrice: 100.0,
+			OpenTime:   openTime,
 		}
 		
-		// 验证创建了新记录
-		if storedTime, exists := at.positionFirstSeenTime[posKey]; !exists || storedTime <= 0 {
-			t.Errorf("Expected new stored time > 0, got %d (exists: %v)", storedTime, exists)
+		// 模拟平仓逻辑
+		trade := at.openTrades[posKey]
+		trade.CloseTime = time.Now()
+		trade.ClosePrice = 105.0
+		trade.PnLPct = 5.0 // 计算的盈利百分比
+		trade.Duration = trade.CloseTime.Sub(trade.OpenTime).String()
+		
+		// 模拟从openTrades移除并添加到recentTrades
+		at.recentTrades = make(map[string]*RecentTrade)
+		at.recentTrades[symbol] = trade
+		delete(at.openTrades, posKey)
+		
+		// 验证状态
+		if _, exists := at.openTrades[posKey]; exists {
+			t.Errorf("Trade should be removed from openTrades")
+		}
+		if recentTrade, exists := at.recentTrades[symbol]; !exists {
+			t.Errorf("Trade should be added to recentTrades")
+		} else if recentTrade.PnLPct != 5.0 {
+			t.Errorf("Expected PnLPct 5.0, got %f", recentTrade.PnLPct)
 		}
 		
-		log.Printf("New firstSeenTime created: %d", updateTime)
+		log.Printf("Trade closed and moved to recentTrades: %s, PnL: %.2f%%", symbol, trade.PnLPct)
 	})
 	
-	log.Println("TestPositionFirstSeenMechanism completed successfully!")
+	log.Println("TestTradeTrackingMechanism completed successfully!")
 }
