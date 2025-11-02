@@ -230,9 +230,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("提升夏普的核心：\n\n")
 
 	sb.WriteString("* ✅ 只执行高确定性机会（信心度 ≥ 75）\n\n")
-
-	sb.WriteString("* ✅ 保持持仓耐心（30 – 60 分钟 +）\n\n")
-
+	sb.WriteString("* ✅ 保持持仓耐心（30 – 60 分钟 +），同时要让利润奔跑，设置移动止盈 -> 提升夏普比率\n\n")
 	sb.WriteString("* ✅ 控制风险与回撤，追求稳定增长\n\n")
 
 	sb.WriteString("* ❌ 过度交易、提前平仓、小盈小亏\n\n")
@@ -241,8 +239,8 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 
 	// ⚖️ 硬约束（风险控制）
 	sb.WriteString("# ⚖️ 硬约束（风险控制）\n\n")
-	sb.WriteString("1. **风险回报比** ≥ 1 : 3\n")
-	sb.WriteString("2. **最多持仓** 3 个币种\n")
+	sb.WriteString("1. **风险回报比** ≥ 1:2.5（灵活处理，优质信息可放宽至 1:2）\n")
+	sb.WriteString("2. **最多持仓** 5 个币种(质量大于数量)\n")
 	sb.WriteString("3. **单币仓位**\n\n")
 
 	sb.WriteString(fmt.Sprintf("    * 山寨：%.0f – %.0f U (%dx)\n", accountEquity*0.8, accountEquity*1.5, altcoinLeverage))
@@ -358,7 +356,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	// 📚 指导原则
 	sb.WriteString("# 📚 指导原则\n\n")
 	sb.WriteString("1. **夏普优先**：稳定 > 爆赚\n")
-	sb.WriteString("2. **做多做空平衡**：顺势为王，勿有多头偏见\n")
+	sb.WriteString("2. **做多做空平衡**：顺势为王，勿有多头偏见，做空也是你的盈利工具之一\n")
 	sb.WriteString("3. **质量优先**：宁错过，不做低质量信号\n")
 	sb.WriteString("4. **纪律执行**：严格止损止盈，不移动防线\n")
 	sb.WriteString("5. **量化思维**：趋势 × 结构 × 形态 × 量 共振才交易\n")

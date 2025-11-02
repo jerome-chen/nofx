@@ -4,15 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
 	"nofx/decision"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/pool"
-	"strconv"
-	"strings"
-	"time"
 )
 
 // AutoTraderConfig 自动交易配置（简化版 - AI全权决策）
@@ -70,13 +73,14 @@ type AutoTraderConfig struct {
 
 // 定义内部交易记录类型以避免导入问题
 type RecentTrade struct {
-	Symbol     string  `json:"symbol"`
-	Side       string  `json:"side"`
-	EntryPrice float64 `json:"entry_price"`
-	ClosePrice float64 `json:"close_price"`
-	Duration   string  `json:"duration"`
-	PnLPct     float64 `json:"pn_l_pct"`
-	Reason     string  `json:"reason"`
+	Symbol     string    `json:"symbol"`
+	Side       string    `json:"side"`
+	EntryPrice float64   `json:"entry_price"`
+	ClosePrice float64   `json:"close_price"`
+	Duration   string    `json:"duration"`
+	PnLPct     float64   `json:"pn_l_pct"`
+	Reason     string    `json:"reason"`
+	CloseTime  time.Time `json:"close_time"`
 }
 
 // AutoTrader 自动交易器
@@ -829,10 +833,21 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	if entryPrice == 0 {
 		entryPrice = marketData.CurrentPrice
 		log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
+		// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
+		modifiedReason := decision.Reasoning
+		// 使用正则表达式移除任何格式的盈亏百分比信息
+		profitRegex := regexp.MustCompile(`[亏损盈利][+-]?\d+(\.\d+)?%`)
+		modifiedReason = profitRegex.ReplaceAllString(modifiedReason, "止损控制风险")
+		decision.Reasoning = modifiedReason
 	}
 	
 	// 计算盈亏百分比
-	pnlPct := ((marketData.CurrentPrice - entryPrice) / entryPrice) * 100
+	var pnlPct float64
+	if entryPrice != 0 && math.Abs(marketData.CurrentPrice-entryPrice) > 0.0001 {
+		pnlPct = ((marketData.CurrentPrice - entryPrice) / entryPrice) * 100
+	} else {
+		pnlPct = 0
+	}
 	
 	// 确保总是更新最近交易记录
 	recentTrade := &RecentTrade{
@@ -843,6 +858,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 		Duration:   durationStr,
 		PnLPct:     pnlPct,
 		Reason:     decision.Reasoning,
+		CloseTime:  time.Now(),
 	}
 	at.recentTrades[decision.Symbol] = recentTrade
 	log.Printf("  ✅ 已更新交易记录: %s LONG | 入场%.4f | 出场%.4f | 盈亏%+.2f%%", 
@@ -862,6 +878,33 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	// 记录订单ID
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
+	}
+	
+	// 尝试获取实际成交价格
+	actualClosePrice := marketData.CurrentPrice
+	if avgPrice, ok := order["avgPrice"].(string); ok {
+		if price, err := strconv.ParseFloat(avgPrice, 64); err == nil && price > 0 {
+			actualClosePrice = price
+		}
+	} else if avgPrice, ok := order["avgPrice"].(float64); ok && avgPrice > 0 {
+		actualClosePrice = avgPrice
+	}
+	
+	// 更新交易记录中的出场价格为实际成交价格
+	if trade, exists := at.recentTrades[decision.Symbol]; exists {
+		trade.ClosePrice = actualClosePrice
+		// 重新计算盈亏百分比
+		if entryPrice != 0 && math.Abs(actualClosePrice-entryPrice) > 0.0001 {
+			trade.PnLPct = ((actualClosePrice - entryPrice) / entryPrice) * 100
+		} else {
+			trade.PnLPct = 0
+		}
+		// 设置平仓时间
+		trade.CloseTime = time.Now()
+		// 重新保存交易记录
+		if err := at.saveRecentTrades(); err != nil {
+			log.Printf("  ⚠ 更新交易记录失败: %v", err)
+		}
 	}
 
 	// 清理已平仓的记录
@@ -944,10 +987,21 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	if entryPrice == 0 {
 		entryPrice = marketData.CurrentPrice
 		log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
+		// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
+		modifiedReason := decision.Reasoning
+		// 使用正则表达式移除任何格式的盈亏百分比信息
+		profitRegex := regexp.MustCompile(`[亏损盈利][+-]?\d+(\.\d+)?%`)
+		modifiedReason = profitRegex.ReplaceAllString(modifiedReason, "止损控制风险")
+		decision.Reasoning = modifiedReason
 	}
 	
 	// 计算盈亏百分比
-	pnlPct := ((entryPrice - marketData.CurrentPrice) / entryPrice) * 100
+	var pnlPct float64
+	if entryPrice != 0 && math.Abs(marketData.CurrentPrice-entryPrice) > 0.0001 {
+		pnlPct = ((entryPrice - marketData.CurrentPrice) / entryPrice) * 100
+	} else {
+		pnlPct = 0
+	}
 	
 	// 确保总是更新最近交易记录
 	recentTrade := &RecentTrade{
@@ -958,6 +1012,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 		Duration:   durationStr,
 		PnLPct:     pnlPct,
 		Reason:     decision.Reasoning,
+		CloseTime:  time.Now(),
 	}
 	at.recentTrades[decision.Symbol] = recentTrade
 	log.Printf("  ✅ 已更新交易记录: %s SHORT | 入场%.4f | 出场%.4f | 盈亏%+.2f%%", 
@@ -974,9 +1029,31 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 		return err
 	}
 
-	// 记录订单ID
-	if orderID, ok := order["orderId"].(int64); ok {
-		actionRecord.OrderID = orderID
+	// 尝试获取实际成交价格
+	actualClosePrice := marketData.CurrentPrice
+	if avgPrice, ok := order["avgPrice"].(string); ok {
+		if price, err := strconv.ParseFloat(avgPrice, 64); err == nil && price > 0 {
+			actualClosePrice = price
+		}
+	} else if avgPrice, ok := order["avgPrice"].(float64); ok && avgPrice > 0 {
+		actualClosePrice = avgPrice
+	}
+	
+	// 更新交易记录中的出场价格为实际成交价格
+	if trade, exists := at.recentTrades[decision.Symbol]; exists {
+		trade.ClosePrice = actualClosePrice
+		// 重新计算盈亏百分比
+		if entryPrice != 0 && math.Abs(actualClosePrice-entryPrice) > 0.0001 {
+			trade.PnLPct = ((entryPrice - actualClosePrice) / entryPrice) * 100
+		} else {
+			trade.PnLPct = 0
+		}
+		// 设置平仓时间
+		trade.CloseTime = time.Now()
+		// 重新保存交易记录
+		if err := at.saveRecentTrades(); err != nil {
+			log.Printf("  ⚠ 更新交易记录失败: %v", err)
+		}
 	}
 
 	// 清理已平仓的记录
