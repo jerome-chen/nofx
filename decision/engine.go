@@ -63,6 +63,7 @@ type RecentTrade struct {
 	Duration   string  `json:"duration"`
 	PnLPct     float64 `json:"pn_l_pct"`
 	Reason     string  `json:"reason"`
+	CloseTime  int64   `json:"close_time,omitempty"` // 平仓时间戳（毫秒）
 }
 
 // Context 交易上下文（传递给AI的完整信息）
@@ -451,9 +452,15 @@ func buildUserPrompt(ctx *Context) string {
 					result = "亏损"
 				}
 				
-				sb.WriteString(fmt.Sprintf("● %s %s | 入场价%.4f | 出场价%.4f | %s%+.2f%% | 持仓%s\n",
+				// 格式化平仓时间
+				closeTimeStr := ""
+				if trade.CloseTime > 0 {
+					closeTimeStr = fmt.Sprintf(" | 平仓时间%s", time.UnixMilli(trade.CloseTime).Format("01-02 15:04"))
+				}
+				
+				sb.WriteString(fmt.Sprintf("● %s %s | 入场价%.4f | 出场价%.4f | %s%+.2f%% | 持仓%s%s\n",
 					trade.Symbol, strings.ToUpper(trade.Side),
-					trade.EntryPrice, trade.ClosePrice, result, trade.PnLPct, trade.Duration))
+					trade.EntryPrice, trade.ClosePrice, result, trade.PnLPct, trade.Duration, closeTimeStr))
 				if trade.Reason != "" {
 					sb.WriteString(fmt.Sprintf("   平仓原因: %s\n", trade.Reason))
 				}
@@ -472,9 +479,15 @@ func buildUserPrompt(ctx *Context) string {
 						result = "亏损"
 					}
 					
-					sb.WriteString(fmt.Sprintf("○ %s %s | 入场价%.4f | 出场价%.4f | %s%+.2f%% | 持仓%s\n",
+					// 格式化平仓时间
+					closeTimeStr := ""
+					if trade.CloseTime > 0 {
+						closeTimeStr = fmt.Sprintf(" | 平仓时间%s", time.UnixMilli(trade.CloseTime).Format("01-02 15:04"))
+					}
+					
+					sb.WriteString(fmt.Sprintf("○ %s %s | 入场价%.4f | 出场价%.4f | %s%+.2f%% | 持仓%s%s\n",
 						trade.Symbol, strings.ToUpper(trade.Side),
-						trade.EntryPrice, trade.ClosePrice, result, trade.PnLPct, trade.Duration))
+						trade.EntryPrice, trade.ClosePrice, result, trade.PnLPct, trade.Duration, closeTimeStr))
 					if trade.Reason != "" {
 						sb.WriteString(fmt.Sprintf("   平仓原因: %s\n", trade.Reason))
 					}
