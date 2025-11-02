@@ -461,11 +461,21 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		// 跟踪持仓首次出现时间
 		posKey := symbol + "_" + side
 		currentPositionKeys[posKey] = true
-		if _, exists := at.positionFirstSeenTime[posKey]; !exists {
-			// 新持仓，记录当前时间
-			at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
+		
+		// 优先使用API返回的updateTime字段，如果没有才使用本地记录的首次出现时间
+		var updateTime int64 = 0
+		
+		// 尝试从API返回的数据中获取updateTime
+		if apiUpdateTime, ok := pos["updateTime"].(int64); ok && apiUpdateTime > 0 {
+			updateTime = apiUpdateTime
+		} else {
+			// API没有返回updateTime，使用本地记录的首次出现时间
+			if _, exists := at.positionFirstSeenTime[posKey]; !exists {
+				// 新持仓，记录当前时间
+				at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
+			}
+			updateTime = at.positionFirstSeenTime[posKey]
 		}
-		updateTime := at.positionFirstSeenTime[posKey]
 
 		// 获取开仓理由
 		openingReason := at.positionOpeningReason[posKey]
