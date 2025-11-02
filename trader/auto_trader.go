@@ -194,7 +194,7 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 	isRunning:             false,
 	positionFirstSeenTime: make(map[string]int64),
 	positionOpeningReason: make(map[string]string),
-	recentTrades:          make(map[string]*RecentTrade), // 初始化最近交易记录map
+	recentTrades:          make(map[string]*RecentTrade), // 初始化最近交易记录map (symbol -> trade)
 }, nil
 }
 
