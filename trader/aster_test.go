@@ -18,9 +18,15 @@ func TestUpdateTimeHandling(t *testing.T) {
 		
 		// 模拟GetPositions中的updateTime处理逻辑
 		updateTime := int64(0)
+		foundValidTime := false
 		if ut, ok := pos["updateTime"].(int64); ok && ut > 0 {
 			updateTime = ut
-		} else {
+			foundValidTime = true
+		} else if utFloat, ok := pos["updateTime"].(float64); ok && utFloat > 0 {
+			updateTime = int64(utFloat)
+			foundValidTime = true
+		}
+		if !foundValidTime {
 			updateTime = time.Now().UnixMilli()
 		}
 		
@@ -34,7 +40,40 @@ func TestUpdateTimeHandling(t *testing.T) {
 		log.Printf("Valid int64 updateTime: %d, holding duration: %d minutes", updateTime, durationMin)
 	})
 	
-	// 测试场景2：updateTime为0
+	// 测试场景2：有效的float64 updateTime（API返回的科学计数法格式）
+	t.Run("ValidFloat64UpdateTime", func(t *testing.T) {
+		// 模拟API返回的updateTime（浮点数格式）
+		validTime := int64(time.Now().UnixMilli() - 5*60*1000)
+		floatTime := float64(validTime)
+		pos := map[string]interface{}{
+			"updateTime": floatTime,
+		}
+		
+		// 模拟GetPositions中的updateTime处理逻辑
+		updateTime := int64(0)
+		foundValidTime := false
+		if ut, ok := pos["updateTime"].(int64); ok && ut > 0 {
+			updateTime = ut
+			foundValidTime = true
+		} else if utFloat, ok := pos["updateTime"].(float64); ok && utFloat > 0 {
+			updateTime = int64(utFloat)
+			foundValidTime = true
+		}
+		if !foundValidTime {
+			updateTime = time.Now().UnixMilli()
+		}
+		
+		if updateTime != validTime {
+			t.Errorf("Expected updateTime %d, got %d", validTime, updateTime)
+		}
+		
+		// 计算持仓时长
+		durationMs := time.Now().UnixMilli() - updateTime
+		durationMin := durationMs / (1000 * 60)
+		log.Printf("Valid float64 updateTime: %f (converted to %d), holding duration: %d minutes", floatTime, updateTime, durationMin)
+	})
+	
+	// 测试场景3：updateTime为0
 	t.Run("ZeroUpdateTime", func(t *testing.T) {
 		pos := map[string]interface{}{
 			"updateTime": int64(0),
@@ -42,9 +81,15 @@ func TestUpdateTimeHandling(t *testing.T) {
 		
 		// 模拟GetPositions中的updateTime处理逻辑
 		updateTime := int64(0)
+		foundValidTime := false
 		if ut, ok := pos["updateTime"].(int64); ok && ut > 0 {
 			updateTime = ut
-		} else {
+			foundValidTime = true
+		} else if utFloat, ok := pos["updateTime"].(float64); ok && utFloat > 0 {
+			updateTime = int64(utFloat)
+			foundValidTime = true
+		}
+		if !foundValidTime {
 			updateTime = time.Now().UnixMilli()
 		}
 		
@@ -55,15 +100,21 @@ func TestUpdateTimeHandling(t *testing.T) {
 		log.Printf("Zero updateTime handled, using current time: %d", updateTime)
 	})
 	
-	// 测试场景3：updateTime不存在
+	// 测试场景4：updateTime不存在
 	t.Run("MissingUpdateTime", func(t *testing.T) {
 		pos := map[string]interface{}{}
 		
 		// 模拟GetPositions中的updateTime处理逻辑
 		updateTime := int64(0)
+		foundValidTime := false
 		if ut, ok := pos["updateTime"].(int64); ok && ut > 0 {
 			updateTime = ut
-		} else {
+			foundValidTime = true
+		} else if utFloat, ok := pos["updateTime"].(float64); ok && utFloat > 0 {
+			updateTime = int64(utFloat)
+			foundValidTime = true
+		}
+		if !foundValidTime {
 			updateTime = time.Now().UnixMilli()
 		}
 		

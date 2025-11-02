@@ -9,6 +9,7 @@ import (
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/pool"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -66,6 +67,17 @@ type AutoTraderConfig struct {
 	StopTradingTime time.Duration // 触发风控后暂停时长
 }
 
+// 定义内部交易记录类型以避免导入问题
+type RecentTrade struct {
+	Symbol     string  `json:"symbol"`
+	Side       string  `json:"side"`
+	EntryPrice float64 `json:"entry_price"`
+	ClosePrice float64 `json:"close_price"`
+	Duration   string  `json:"duration"`
+	PnLPct     float64 `json:"pn_l_pct"`
+	Reason     string  `json:"reason"`
+}
+
 // AutoTrader 自动交易器
 type AutoTrader struct {
 	id                    string // Trader唯一标识
@@ -85,6 +97,7 @@ type AutoTrader struct {
 	callCount             int              // AI调用次数
 	positionFirstSeenTime map[string]int64 // 持仓首次出现时间 (symbol_side -> timestamp毫秒)
 	positionOpeningReason map[string]string // 持仓开仓理由 (symbol_side -> reason)
+	recentTrades          map[string]*RecentTrade // 每个交易对的最近交易记录 (symbol -> trade)
 }
 
 // NewAutoTrader 创建自动交易器
@@ -181,6 +194,7 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 	isRunning:             false,
 	positionFirstSeenTime: make(map[string]int64),
 	positionOpeningReason: make(map[string]string),
+	recentTrades:          make(map[string]*RecentTrade), // 初始化最近交易记录map
 }, nil
 }
 
@@ -572,7 +586,21 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		},
 		Positions:      positionInfos,
 		CandidateCoins: candidateCoins,
+		RecentTrades:   make(map[string]*decision.RecentTrade), // 初始化最近交易记录map
 		Performance:    performance, // 添加历史表现分析
+	}
+
+	// 复制最近交易记录，从本地类型转换为decision包中的类型
+	for symbol, trade := range at.recentTrades {
+		ctx.RecentTrades[symbol] = &decision.RecentTrade{
+			Symbol:     trade.Symbol,
+			Side:       trade.Side,
+			EntryPrice: trade.EntryPrice,
+			ClosePrice: trade.ClosePrice,
+			Duration:   trade.Duration,
+			PnLPct:     trade.PnLPct,
+			Reason:     trade.Reason,
+		}
 	}
 
 	return ctx, nil
@@ -716,6 +744,72 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	}
 	actionRecord.Price = marketData.CurrentPrice
 
+	// 获取持仓信息以计算持有时间和入场价格
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		log.Printf("  ⚠ 获取持仓信息失败: %v", err)
+	} else {
+		for _, pos := range positions {
+			// 从map中获取字段
+			posSymbol, _ := pos["symbol"].(string)
+			posSide, _ := pos["side"].(string)
+			if posSymbol == decision.Symbol && posSide == "LONG" {
+				// 计算持有时间
+				var durationStr string
+				positionKey := fmt.Sprintf("%s_LONG", decision.Symbol)
+				if firstSeen, exists := at.positionFirstSeenTime[positionKey]; exists {
+					durationMs := time.Now().UnixMilli() - firstSeen
+					durationMin := durationMs / (1000 * 60) // 转换为分钟
+					if durationMin < 60 {
+						durationStr = fmt.Sprintf("%d分钟", durationMin)
+					} else {
+						durationHour := durationMin / 60
+						durationMinRemainder := durationMin % 60
+						durationStr = fmt.Sprintf("%d小时%d分钟", durationHour, durationMinRemainder)
+					}
+				} else {
+					durationStr = "未知"
+				}
+
+				// 从map中获取入场价格并转换为float64
+				var entryPrice float64
+				if ep, ok := pos["entryPrice"]; ok {
+					switch v := ep.(type) {
+					case float64:
+						entryPrice = v
+					case float32:
+						entryPrice = float64(v)
+					case int64:
+						entryPrice = float64(v)
+					case int:
+						entryPrice = float64(v)
+					case string:
+						if val, err := strconv.ParseFloat(v, 64); err == nil {
+							entryPrice = val
+						}
+					}
+				}
+
+				// 计算盈亏百分比
+				pnlPct := ((marketData.CurrentPrice - entryPrice) / entryPrice) * 100
+
+				// 更新最近交易记录
+				recentTrade := &RecentTrade{
+					Symbol:     decision.Symbol,
+					Side:       "LONG",
+					EntryPrice: entryPrice,
+					ClosePrice: marketData.CurrentPrice,
+					Duration:   durationStr,
+					PnLPct:     pnlPct,
+					Reason:     decision.Reasoning,
+				}
+				at.recentTrades[decision.Symbol] = recentTrade
+
+				break
+			}
+		}
+	}
+
 	// 平仓
 	order, err := at.trader.CloseLong(decision.Symbol, 0) // 0 = 全部平仓
 	if err != nil {
@@ -726,6 +820,10 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
 	}
+
+	// 清理已平仓的记录
+	delete(at.positionFirstSeenTime, fmt.Sprintf("%s_LONG", decision.Symbol))
+	delete(at.positionOpeningReason, fmt.Sprintf("%s_LONG", decision.Symbol))
 
 	log.Printf("  ✓ 平仓成功")
 	return nil
@@ -742,6 +840,72 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	}
 	actionRecord.Price = marketData.CurrentPrice
 
+	// 获取持仓信息以计算持有时间和入场价格
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		log.Printf("  ⚠ 获取持仓信息失败: %v", err)
+	} else {
+		for _, pos := range positions {
+			// 从map中获取字段
+			posSymbol, _ := pos["symbol"].(string)
+			posSide, _ := pos["side"].(string)
+			if posSymbol == decision.Symbol && posSide == "SHORT" {
+				// 计算持有时间
+				var durationStr string
+				positionKey := fmt.Sprintf("%s_SHORT", decision.Symbol)
+				if firstSeen, exists := at.positionFirstSeenTime[positionKey]; exists {
+					durationMs := time.Now().UnixMilli() - firstSeen
+					durationMin := durationMs / (1000 * 60) // 转换为分钟
+					if durationMin < 60 {
+						durationStr = fmt.Sprintf("%d分钟", durationMin)
+					} else {
+						durationHour := durationMin / 60
+						durationMinRemainder := durationMin % 60
+						durationStr = fmt.Sprintf("%d小时%d分钟", durationHour, durationMinRemainder)
+					}
+				} else {
+					durationStr = "未知"
+				}
+
+				// 从map中获取入场价格并转换为float64
+				var entryPrice float64
+				if ep, ok := pos["entryPrice"]; ok {
+					switch v := ep.(type) {
+					case float64:
+						entryPrice = v
+					case float32:
+						entryPrice = float64(v)
+					case int64:
+						entryPrice = float64(v)
+					case int:
+						entryPrice = float64(v)
+					case string:
+						if val, err := strconv.ParseFloat(v, 64); err == nil {
+							entryPrice = val
+						}
+					}
+				}
+
+				// 计算盈亏百分比
+				pnlPct := ((entryPrice - marketData.CurrentPrice) / entryPrice) * 100
+
+				// 更新最近交易记录
+				recentTrade := &RecentTrade{
+					Symbol:     decision.Symbol,
+					Side:       "SHORT",
+					EntryPrice: entryPrice,
+					ClosePrice: marketData.CurrentPrice,
+					Duration:   durationStr,
+					PnLPct:     pnlPct,
+					Reason:     decision.Reasoning,
+				}
+				at.recentTrades[decision.Symbol] = recentTrade
+
+				break
+			}
+		}
+	}
+
 	// 平仓
 	order, err := at.trader.CloseShort(decision.Symbol, 0) // 0 = 全部平仓
 	if err != nil {
@@ -752,6 +916,10 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
 	}
+
+	// 清理已平仓的记录
+	delete(at.positionFirstSeenTime, fmt.Sprintf("%s_SHORT", decision.Symbol))
+	delete(at.positionOpeningReason, fmt.Sprintf("%s_SHORT", decision.Symbol))
 
 	log.Printf("  ✓ 平仓成功")
 	return nil

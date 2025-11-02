@@ -54,6 +54,17 @@ type OITopData struct {
 	NetShort          float64 // 净空仓
 }
 
+// RecentTrade 最近一次交易记录
+type RecentTrade struct {
+	Symbol     string  `json:"symbol"`
+	Side       string  `json:"side"`
+	EntryPrice float64 `json:"entry_price"`
+	ClosePrice float64 `json:"close_price"`
+	Duration   string  `json:"duration"`
+	PnLPct     float64 `json:"pn_l_pct"`
+	Reason     string  `json:"reason"`
+}
+
 // Context 交易上下文（传递给AI的完整信息）
 type Context struct {
 	CurrentTime     string                  `json:"current_time"`
@@ -62,6 +73,7 @@ type Context struct {
 	Account         AccountInfo             `json:"account"`
 	Positions       []PositionInfo          `json:"positions"`
 	CandidateCoins  []CandidateCoin         `json:"candidate_coins"`
+	RecentTrades    map[string]*RecentTrade `json:"recent_trades"` // 每个交易对的最近一次交易记录
 	MarketDataMap   map[string]*market.Data `json:"-"` // 不序列化，但内部使用
 	OITopDataMap    map[string]*OITopData   `json:"-"` // OI Top数据映射
 	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
@@ -420,6 +432,55 @@ func buildUserPrompt(ctx *Context) string {
 		}
 	} else {
 		sb.WriteString("**当前持仓**: 无\n\n")
+	}
+
+	// 最近交易记录（每个交易对的最近一次交易）
+	if len(ctx.RecentTrades) > 0 {
+		sb.WriteString("## 最近交易记录\n")
+		// 优先显示候选币种的最近交易记录
+		shownSymbols := make(map[string]bool)
+		
+		// 先显示候选币种的最近交易
+		for _, coin := range ctx.CandidateCoins {
+			if trade, exists := ctx.RecentTrades[coin.Symbol]; exists && !shownSymbols[coin.Symbol] {
+				result := "盈利"
+				if trade.PnLPct < 0 {
+					result = "亏损"
+				}
+				
+				sb.WriteString(fmt.Sprintf("● %s %s | 入场价%.4f | 出场价%.4f | %s%+.2f%% | 持仓%s\n",
+					trade.Symbol, strings.ToUpper(trade.Side),
+					trade.EntryPrice, trade.ClosePrice, result, trade.PnLPct, trade.Duration))
+				if trade.Reason != "" {
+					sb.WriteString(fmt.Sprintf("   平仓原因: %s\n", trade.Reason))
+				}
+				sb.WriteString("\n")
+				shownSymbols[coin.Symbol] = true
+			}
+		}
+		
+		// 显示其他交易对的最近交易（如果还有空间）
+		remainingCount := 5 - len(shownSymbols)
+		if remainingCount > 0 {
+			for symbol, trade := range ctx.RecentTrades {
+				if !shownSymbols[symbol] && remainingCount > 0 {
+					result := "盈利"
+					if trade.PnLPct < 0 {
+						result = "亏损"
+					}
+					
+					sb.WriteString(fmt.Sprintf("○ %s %s | 入场价%.4f | 出场价%.4f | %s%+.2f%% | 持仓%s\n",
+						trade.Symbol, strings.ToUpper(trade.Side),
+						trade.EntryPrice, trade.ClosePrice, result, trade.PnLPct, trade.Duration))
+					if trade.Reason != "" {
+						sb.WriteString(fmt.Sprintf("   平仓原因: %s\n", trade.Reason))
+					}
+					sb.WriteString("\n")
+					shownSymbols[symbol] = true
+					remainingCount--
+				}
+			}
+		}
 	}
 
 	// 候选币种（完整市场数据）

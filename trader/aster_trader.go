@@ -506,13 +506,24 @@ func (t *AsterTrader) GetPositions() ([]map[string]interface{}, error) {
 		// 根据API文档，updateTime是整数类型的毫秒时间戳
 		updateTime := int64(0)
 		
-		// 直接从API响应中获取updateTime
+		// 直接从API响应中获取updateTime，支持int64和float64两种类型
+		updateTime = int64(0)
+		foundValidTime := false
+		
+		// 尝试int64类型
 		if ut, ok := pos["updateTime"].(int64); ok && ut > 0 {
 			updateTime = ut
-		} else {
+			foundValidTime = true
+		// 尝试float64类型（API返回的是科学计数法格式）
+		} else if utFloat, ok := pos["updateTime"].(float64); ok && utFloat > 0 {
+			updateTime = int64(utFloat)
+			foundValidTime = true
+		}
+		
+		if !foundValidTime {
 			// 确保即使API返回其他类型或无效值，也能显示正确的持仓时长
 			// 使用当前时间作为默认值，避免显示0分钟
-			log.Printf("⚠️  ASTER API返回的updateTime格式异常，使用当前时间作为默认值")
+			log.Printf("⚠️  ASTER API返回的updateTime格式异常，实际值: %v, 使用当前时间作为默认值", pos["updateTime"])
 			updateTime = time.Now().UnixMilli()
 		}
 
