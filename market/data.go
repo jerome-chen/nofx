@@ -535,60 +535,109 @@ func getFundingRate(symbol string) (float64, error) {
 func Format(data *Data) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("current_price = %.2f, current_ema20 = %.3f, current_macd = %.3f, current_rsi (7 period) = %.3f\n\n",
+	// 根据价格动态确定小数位数
+	pricePrecision := getDynamicPrecision(data.CurrentPrice)
+	priceFormat := fmt.Sprintf("%%.%df", pricePrecision)
+	
+	// 核心数据使用动态精度
+	sb.WriteString(fmt.Sprintf("current_price = "+priceFormat+", current_ema20 = "+priceFormat+", current_macd = %.2f, current_rsi (7 period) = %.2f\n\n",
 		data.CurrentPrice, data.CurrentEMA20, data.CurrentMACD, data.CurrentRSI7))
 
-	sb.WriteString(fmt.Sprintf("In addition, here is the latest %s open interest and funding rate for perps:\n\n",
-		data.Symbol))
+	// 简化Open Interest和Funding Rate描述
+	sb.WriteString(fmt.Sprintf("Latest %s OI & Funding:\n\n", data.Symbol))
 
 	if data.OpenInterest != nil {
-		sb.WriteString(fmt.Sprintf("Open Interest: Latest: %.2f Average: %.2f\n\n",
+		// 大额数值使用更少的小数位
+		sb.WriteString(fmt.Sprintf("OI: Latest: %.1f Average: %.1f\n\n",
 			data.OpenInterest.Latest, data.OpenInterest.Average))
 	}
 
-	sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))
+	// 保持科学计数法但减少精度
+	sb.WriteString(fmt.Sprintf("Funding: %.1e\n\n", data.FundingRate))
 
 	// 显示多时间周期数据
-	sb.WriteString("=== 多时间周期数据 ===\n\n")
+	sb.WriteString("=== 时间周期数据 ===\n\n")
 
 	// 按顺序输出不同时间周期的数据：15m, 1h, 4h, 1d
 	timeFrames := []string{"15m", "1h", "4h", "1d"}
 	for _, tf := range timeFrames {
 		if tfData, exists := data.TimeFrameData[tf]; exists {
-			sb.WriteString(fmt.Sprintf("[时间周期: %s]\n", tf))
-			sb.WriteString(fmt.Sprintf("EMA20: %.3f | EMA50: %.3f\n", tfData.EMA20, tfData.EMA50))
-			sb.WriteString(fmt.Sprintf("MACD: %.3f | RSI7: %.3f | RSI14: %.3f\n", tfData.MACD, tfData.RSI7, tfData.RSI14))
-			sb.WriteString(fmt.Sprintf("ATR3: %.3f | ATR14: %.3f\n", tfData.ATR3, tfData.ATR14))
-			sb.WriteString(fmt.Sprintf("Volume: %.3f | AvgVolume: %.3f\n\n", tfData.Volume, tfData.AvgVolume))
+			sb.WriteString(fmt.Sprintf("[%s]\n", tf))
+			// 指标使用动态精度
+			tfFormat := fmt.Sprintf("%%.%df", getDynamicPrecision(tfData.EMA20))
+			sb.WriteString(fmt.Sprintf("EMA20: "+tfFormat+" | EMA50: "+tfFormat+"\n", tfData.EMA20, tfData.EMA50))
+			sb.WriteString(fmt.Sprintf("MACD: %.2f | RSI7: %.2f | RSI14: %.2f\n", tfData.MACD, tfData.RSI7, tfData.RSI14))
+			sb.WriteString(fmt.Sprintf("ATR3: %.2f | ATR14: %.2f\n", tfData.ATR3, tfData.ATR14))
+			// 大额交易量使用更少的小数位
+			sb.WriteString(fmt.Sprintf("Volume: %.1f | AvgVolume: %.1f\n\n", tfData.Volume, tfData.AvgVolume))
 		}
 	}
 
-	// 保留原有数据格式作为补充
+	// 优化Intraday系列数据表示 - 只显示最新5个数据点
 	if data.IntradaySeries != nil {
-		sb.WriteString("Intraday series (15‑minute intervals, oldest → latest):\n\n")
+		sb.WriteString("Recent 15m data (latest 5):\n\n")
 
+		// 只显示最新的10个数据点
+		maxPoints := 10
+		
 		if len(data.IntradaySeries.MidPrices) > 0 {
-			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
+			startIdx := len(data.IntradaySeries.MidPrices) - maxPoints
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			sb.WriteString(fmt.Sprintf("Prices: %s\n\n", formatFloatSliceDynamic(data.IntradaySeries.MidPrices[startIdx:])))
 		}
 
 		if len(data.IntradaySeries.EMA20Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.IntradaySeries.EMA20Values)))
+			startIdx := len(data.IntradaySeries.EMA20Values) - maxPoints
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			sb.WriteString(fmt.Sprintf("EMA20: %s\n\n", formatFloatSliceDynamic(data.IntradaySeries.EMA20Values[startIdx:])))
 		}
 
 		if len(data.IntradaySeries.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
+			startIdx := len(data.IntradaySeries.MACDValues) - maxPoints
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			sb.WriteString(fmt.Sprintf("MACD: %s\n\n", formatFloatSliceDynamic(data.IntradaySeries.MACDValues[startIdx:])))
 		}
 
 		if len(data.IntradaySeries.RSI7Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (7‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI7Values)))
+			startIdx := len(data.IntradaySeries.RSI7Values) - maxPoints
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			sb.WriteString(fmt.Sprintf("RSI7: %s\n\n", formatFloatSliceDynamic(data.IntradaySeries.RSI7Values[startIdx:])))
 		}
 
-		if len(data.IntradaySeries.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI14Values)))
-		}
+		// 移除RSI14的重复输出，因为在时间周期数据中已有
 	}
 
 	return sb.String()
+}
+
+// getDynamicPrecision 根据数值大小动态确定小数位数
+func getDynamicPrecision(value float64) int {
+	absValue := math.Abs(value)
+	if absValue == 0 {
+		return 2
+	}
+	// 对于非常小的值（如SHIB），使用更多小数位
+	if absValue < 0.01 {
+		return 6
+	} else if absValue < 0.1 {
+		return 4
+	} else if absValue < 1 {
+		return 3
+	} else if absValue < 100 {
+		return 2
+	} else if absValue < 1000 {
+		return 1
+	}
+	// 大数值使用整数表示
+	return 0
 }
 
 // formatFloatSlice 格式化float64切片为字符串
@@ -598,6 +647,43 @@ func formatFloatSlice(values []float64) string {
 		strValues[i] = fmt.Sprintf("%.3f", v)
 	}
 	return "[" + strings.Join(strValues, ", ") + "]"
+}
+
+// formatFloatSliceDynamic 根据数组中值的大小动态格式化float64切片
+func formatFloatSliceDynamic(values []float64) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	
+	// 找出数组中最小值和最大值，确定合适的精度
+	minVal := values[0]
+	maxVal := values[0]
+	for _, v := range values {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	
+	// 使用最小和最大值来确定精度
+	precision := getDynamicPrecision(min(minVal, maxVal))
+	format := fmt.Sprintf("%%.%df", precision)
+	
+	strValues := make([]string, len(values))
+	for i, v := range values {
+		strValues[i] = fmt.Sprintf(format, v)
+	}
+	return "[" + strings.Join(strValues, ", ") + "]"
+}
+
+// min 返回两个float64中的较小值
+func min(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Normalize 标准化symbol,确保是USDT交易对
