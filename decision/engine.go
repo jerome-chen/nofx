@@ -396,6 +396,9 @@ func buildUserPrompt(ctx *Context) string {
 		ctx.Account.PositionCount))
 
 	// 持仓（完整市场数据）
+	// 使用map跟踪已显示完整市场数据的币种，避免在候选币种部分重复显示
+	displayedMarketDataSymbols := make(map[string]bool)
+	
 	if len(ctx.Positions) > 0 {
 		sb.WriteString("## 当前持仓\n")
 		for i, pos := range ctx.Positions {
@@ -428,6 +431,8 @@ func buildUserPrompt(ctx *Context) string {
 			if marketData, ok := ctx.MarketDataMap[pos.Symbol]; ok {
 				sb.WriteString(market.Format(marketData))
 				sb.WriteString("\n")
+				// 标记该币种已显示完整市场数据
+				displayedMarketDataSymbols[pos.Symbol] = true
 			}
 		}
 	} else {
@@ -502,8 +507,16 @@ func buildUserPrompt(ctx *Context) string {
 
 		// 使用FormatMarketData输出完整市场数据
 		sb.WriteString(fmt.Sprintf("### %d. %s%s\n\n", displayedCount, coin.Symbol, sourceTags))
-		sb.WriteString(market.Format(marketData))
-		sb.WriteString("\n")
+		
+		// 检查该币种是否已在持仓部分显示过完整市场数据
+		if displayedMarketDataSymbols[coin.Symbol] {
+			// 如果已显示过，只显示基本信息，不重复完整市场数据
+			sb.WriteString(fmt.Sprintf("（已在持仓中显示详细数据）\n\n"))
+		} else {
+			// 否则显示完整市场数据
+			sb.WriteString(market.Format(marketData))
+			sb.WriteString("\n")
+		}
 	}
 	sb.WriteString("\n")
 
