@@ -503,6 +503,7 @@ func (t *AsterTrader) GetPositions() ([]map[string]interface{}, error) {
 		unRealizedProfit, _ := strconv.ParseFloat(pos["unRealizedProfit"].(string), 64)
 		leverageVal, _ := strconv.ParseFloat(pos["leverage"].(string), 64)
 		liquidationPrice, _ := strconv.ParseFloat(pos["liquidationPrice"].(string), 64)
+		updateTime, _ := pos["updateTime"].(int64)
 
 		// 判断方向（与Binance一致）
 		side := "long"
@@ -521,6 +522,7 @@ func (t *AsterTrader) GetPositions() ([]map[string]interface{}, error) {
 			"unRealizedProfit":  unRealizedProfit,
 			"leverage":          leverageVal,
 			"liquidationPrice":  liquidationPrice,
+			"updateTime":        updateTime,
 		})
 	}
 
