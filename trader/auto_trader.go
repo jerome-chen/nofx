@@ -222,9 +222,9 @@ func (at *AutoTrader) Stop() {
 func (at *AutoTrader) runCycle() error {
 	at.callCount++
 
-	log.Printf("\n" + strings.Repeat("=", 70))
+	log.Printf("\n%s", strings.Repeat("=", 70))
 	log.Printf("⏰ %s - AI决策周期 #%d", time.Now().Format("2006-01-02 15:04:05"), at.callCount)
-	log.Printf(strings.Repeat("=", 70))
+	log.Printf("%s", strings.Repeat("=", 70))
 
 	// 创建决策记录
 	record := &logger.DecisionRecord{
@@ -319,11 +319,11 @@ func (at *AutoTrader) runCycle() error {
 
 			// 打印AI思维链（即使有错误）
 			if decision != nil && decision.CoTTrace != "" {
-				log.Printf("\n" + strings.Repeat("-", 70))
+				log.Printf("\n%s", strings.Repeat("-", 70))
 				log.Println("💭 AI思维链分析（错误情况）:")
 				log.Println(strings.Repeat("-", 70))
 				log.Println(decision.CoTTrace)
-				log.Printf(strings.Repeat("-", 70) + "\n")
+				log.Printf("%s\n", strings.Repeat("-", 70))
 			}
 
 			at.decisionLogger.LogDecision(record)
@@ -332,11 +332,11 @@ func (at *AutoTrader) runCycle() error {
 	}
 
 	// 5. 打印AI思维链
-	log.Printf("\n" + strings.Repeat("-", 70))
+	log.Printf("\n%s", strings.Repeat("-", 70))
 	log.Println("💭 AI思维链分析:")
 	log.Println(strings.Repeat("-", 70))
 	log.Println(decision.CoTTrace)
-	log.Printf(strings.Repeat("-", 70) + "\n")
+	log.Printf("%s\n", strings.Repeat("-", 70))
 
 	// 6. 打印AI决策
 	log.Printf("📋 AI决策列表 (%d 个):\n", len(decision.Decisions))
@@ -462,25 +462,28 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		posKey := symbol + "_" + side
 		currentPositionKeys[posKey] = true
 		
-		// 优先使用API返回的updateTime字段，如果没有才使用本地记录的首次出现时间
-		var updateTime int64 = 0
-		
-		// 尝试从API返回的数据中获取updateTime
-		if apiUpdateTime, ok := pos["updateTime"].(int64); ok && apiUpdateTime > 0 {
-			updateTime = apiUpdateTime
-		} else {
-			// API没有返回updateTime，使用本地记录的首次出现时间
-			if _, exists := at.positionFirstSeenTime[posKey]; !exists {
-				// 新持仓，记录当前时间
-				at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
+		// 优先使用API返回的updateTime值
+		// 对于不返回updateTime的交易所（如Binance），回退到本地首次出现时间
+		updateTime, ok := pos["updateTime"].(int64)
+		if !ok || updateTime == 0 {
+			// 如果API没有提供updateTime，使用本地记录的首次出现时间
+			if firstSeenTime, exists := at.positionFirstSeenTime[posKey]; exists {
+				updateTime = firstSeenTime
+			} else {
+				// 如果本地也没有记录，使用当前时间作为首次出现时间
+				updateTime = time.Now().UnixMilli()
+				at.positionFirstSeenTime[posKey] = updateTime
 			}
-			updateTime = at.positionFirstSeenTime[posKey]
+		} else {
+			// 如果API提供了有效的updateTime，更新本地记录
+			at.positionFirstSeenTime[posKey] = updateTime
 		}
 
 		// 获取开仓理由
 		openingReason := at.positionOpeningReason[posKey]
 
-		positionInfos = append(positionInfos, decision.PositionInfo{
+		// 确保使用正确的updateTime值
+		positionInfo := decision.PositionInfo{
 			Symbol:           symbol,
 			Side:             side,
 			EntryPrice:       entryPrice,
@@ -493,7 +496,8 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 			MarginUsed:       marginUsed,
 			UpdateTime:       updateTime,
 			OpeningReason:    openingReason,
-		})
+		}
+		positionInfos = append(positionInfos, positionInfo)
 	}
 
 	// 清理已平仓的持仓记录

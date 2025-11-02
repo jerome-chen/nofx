@@ -503,7 +503,18 @@ func (t *AsterTrader) GetPositions() ([]map[string]interface{}, error) {
 		unRealizedProfit, _ := strconv.ParseFloat(pos["unRealizedProfit"].(string), 64)
 		leverageVal, _ := strconv.ParseFloat(pos["leverage"].(string), 64)
 		liquidationPrice, _ := strconv.ParseFloat(pos["liquidationPrice"].(string), 64)
-		updateTime, _ := pos["updateTime"].(int64)
+		// 根据API文档，updateTime是整数类型的毫秒时间戳
+		updateTime := int64(0)
+		
+		// 直接从API响应中获取updateTime
+		if ut, ok := pos["updateTime"].(int64); ok && ut > 0 {
+			updateTime = ut
+		} else {
+			// 确保即使API返回其他类型或无效值，也能显示正确的持仓时长
+			// 使用当前时间作为默认值，避免显示0分钟
+			log.Printf("⚠️  ASTER API返回的updateTime格式异常，使用当前时间作为默认值")
+			updateTime = time.Now().UnixMilli()
+		}
 
 		// 判断方向（与Binance一致）
 		side := "long"
