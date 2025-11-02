@@ -300,6 +300,19 @@ func (at *AutoTrader) runCycle() error {
 		record.CandidateCoins = append(record.CandidateCoins, coin.Symbol)
 	}
 
+	// 保存最近交易记录
+	for _, trade := range at.recentTrades {
+		record.RecentTrades = append(record.RecentTrades, logger.RecentTrade{
+			Symbol:     trade.Symbol,
+			Side:       trade.Side,
+			EntryPrice: trade.EntryPrice,
+			ClosePrice: trade.ClosePrice,
+			Duration:   trade.Duration,
+			PnLPct:     trade.PnLPct,
+			Reason:     trade.Reason,
+		})
+	}
+
 	log.Printf("📊 账户净值: %.2f USDT | 可用: %.2f USDT | 持仓: %d",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance, ctx.Account.PositionCount)
 
