@@ -438,16 +438,23 @@ func (t *AsterTrader) GetBalance() (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	// 查找USDT余额
+	// 先累加所有稳定币的总余额
 	totalBalance := 0.0
+	for _, bal := range balances {
+		if asset, ok := bal["asset"].(string); ok && (asset == "USDT" || asset == "USDC" || asset == "USDF") {
+			if wb, ok := bal["balance"].(string); ok {
+				if balance, err := strconv.ParseFloat(wb, 64); err == nil {
+					totalBalance += balance
+				}
+			}
+		}
+	}
+
+	// 然后在循环中处理availableBalance和crossUnPnl
 	availableBalance := 0.0
 	crossUnPnl := 0.0
-
 	for _, bal := range balances {
-		if asset, ok := bal["asset"].(string); ok && asset == "USDT" {
-			if wb, ok := bal["balance"].(string); ok {
-				totalBalance, _ = strconv.ParseFloat(wb, 64)
-			}
+		if asset, ok := bal["asset"].(string); ok && (asset == "USDT" || asset == "USDC" || asset == "USDF") {
 			if avail, ok := bal["availableBalance"].(string); ok {
 				availableBalance, _ = strconv.ParseFloat(avail, 64)
 			}
@@ -496,6 +503,29 @@ func (t *AsterTrader) GetPositions() ([]map[string]interface{}, error) {
 		unRealizedProfit, _ := strconv.ParseFloat(pos["unRealizedProfit"].(string), 64)
 		leverageVal, _ := strconv.ParseFloat(pos["leverage"].(string), 64)
 		liquidationPrice, _ := strconv.ParseFloat(pos["liquidationPrice"].(string), 64)
+		// 根据API文档，updateTime是整数类型的毫秒时间戳
+		updateTime := int64(0)
+		
+		// 直接从API响应中获取updateTime，支持int64和float64两种类型
+		updateTime = int64(0)
+		foundValidTime := false
+		
+		// 尝试int64类型
+		if ut, ok := pos["updateTime"].(int64); ok && ut > 0 {
+			updateTime = ut
+			foundValidTime = true
+		// 尝试float64类型（API返回的是科学计数法格式）
+		} else if utFloat, ok := pos["updateTime"].(float64); ok && utFloat > 0 {
+			updateTime = int64(utFloat)
+			foundValidTime = true
+		}
+		
+		if !foundValidTime {
+			// 确保即使API返回其他类型或无效值，也能显示正确的持仓时长
+			// 使用当前时间作为默认值，避免显示0分钟
+			log.Printf("⚠️  ASTER API返回的updateTime格式异常，实际值: %v, 使用当前时间作为默认值", pos["updateTime"])
+			updateTime = time.Now().UnixMilli()
+		}
 
 		// 判断方向（与Binance一致）
 		side := "long"
@@ -514,6 +544,7 @@ func (t *AsterTrader) GetPositions() ([]map[string]interface{}, error) {
 			"unRealizedProfit":  unRealizedProfit,
 			"leverage":          leverageVal,
 			"liquidationPrice":  liquidationPrice,
+			"updateTime":        updateTime,
 		})
 	}
 

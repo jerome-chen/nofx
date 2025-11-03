@@ -10,6 +10,17 @@ import (
 	"time"
 )
 
+// RecentTrade 最近交易记录
+type RecentTrade struct {
+	Symbol     string  `json:"symbol"`     // 币种
+	Side       string  `json:"side"`       // 多空方向
+	EntryPrice float64 `json:"entry_price"` // 入场价格
+	ClosePrice float64 `json:"close_price"` // 平仓价格
+	Duration   string  `json:"duration"`   // 持有时间
+	PnLPct     float64 `json:"pnl_pct"`    // 盈亏百分比
+	Reason     string  `json:"reason"`     // 交易理由
+}
+
 // DecisionRecord 决策记录
 type DecisionRecord struct {
 	Timestamp      time.Time          `json:"timestamp"`       // 决策时间
@@ -22,6 +33,7 @@ type DecisionRecord struct {
 	CandidateCoins []string           `json:"candidate_coins"` // 候选币种列表
 	Decisions      []DecisionAction   `json:"decisions"`       // 执行的决策
 	ExecutionLog   []string           `json:"execution_log"`   // 执行日志
+	RecentTrades   []RecentTrade      `json:"recent_trades"`   // 最近交易记录
 	Success        bool               `json:"success"`         // 是否成功
 	ErrorMessage   string             `json:"error_message"`   // 错误信息（如果有）
 	WarningMessage string             `json:"warning_message"` // 警告信息（如果有）

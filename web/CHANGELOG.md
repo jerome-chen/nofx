@@ -10,7 +10,7 @@
   - 纯黑背景 `#0a0a0a`
   - 白色文字 `#ededed`
   - 灰色边框 `rgba(255, 255, 255, 0.1)`
-  - 品牌色仅用于AI提供商标识（DeepSeek蓝 `#4d6bfe`、Qwen紫 `#8b5cf6`、Grok绿 `#11a37f`）
+  - 品牌色仅用于AI提供商标识（DeepSeek蓝 `#4d6bfe`、Qwen紫 `#8b5cf6`）
 - ✅ **字体**：IBM Plex Mono（等宽字体，专业交易界面风格）
 - ✅ **终端扫描线效果**：灰色扫描线动画，营造专业交易氛围
 
@@ -20,7 +20,7 @@
   - 玻璃态模糊背景（glass effect）
   - 粘性定位（sticky top）
   - 状态指示器带脉冲发光动画
-  - AI提供商颜色区分（DeepSeek蓝/Qwen紫/Grok绿）
+  - AI提供商颜色区分（DeepSeek蓝/Qwen紫）
 
 - ✅ **统计卡片**：
   - 半透明背景 `bg-gray-900/50`

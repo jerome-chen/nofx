@@ -4,13 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
 	"nofx/decision"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/pool"
-	"strings"
-	"time"
 )
 
 // AutoTraderConfig 自动交易配置（简化版 - AI全权决策）
@@ -43,7 +48,6 @@ type AutoTraderConfig struct {
 	UseQwen     bool
 	DeepSeekKey string
 	QwenKey     string
-	GrokKey     string
 
 	// 自定义AI API配置
 	CustomAPIURL    string
@@ -57,13 +61,27 @@ type AutoTraderConfig struct {
 	InitialBalance float64 // 初始金额（用于计算盈亏，需手动设置）
 
 	// 杠杆配置
-	BTCETHLeverage  int // BTC和ETH的杠杆倍数
-	AltcoinLeverage int // 山寨币的杠杆倍数
+	BTCETHLeverage  int            // BTC和ETH的杠杆倍数
+	AltcoinLeverage int            // 山寨币的杠杆倍数
+	PairLeverage    map[string]int // 特定交易对的杠杆倍数
 
 	// 风险控制（仅作为提示，AI可自主决定）
 	MaxDailyLoss    float64       // 最大日亏损百分比（提示）
 	MaxDrawdown     float64       // 最大回撤百分比（提示）
 	StopTradingTime time.Duration // 触发风控后暂停时长
+}
+
+// 定义内部交易记录类型以避免导入问题
+type RecentTrade struct {
+	Symbol     string    `json:"symbol"`
+	Side       string    `json:"side"`
+	EntryPrice float64   `json:"entry_price"`
+	ClosePrice float64   `json:"close_price"`
+	Duration   string    `json:"duration"`
+	PnLPct     float64   `json:"pn_l_pct"`
+	Reason     string    `json:"reason"`
+	OpenTime   time.Time `json:"open_time"`
+	CloseTime  time.Time `json:"close_time"`
 }
 
 // AutoTrader 自动交易器
@@ -83,7 +101,8 @@ type AutoTrader struct {
 	isRunning             bool
 	startTime             time.Time        // 系统启动时间
 	callCount             int              // AI调用次数
-	positionFirstSeenTime map[string]int64 // 持仓首次出现时间 (symbol_side -> timestamp毫秒)
+	openTrades            map[string]*RecentTrade // 当前未平仓交易 (symbol_side -> trade)
+	recentTrades          map[string]*RecentTrade // 每个交易对的最近交易记录 (symbol -> trade)
 }
 
 // NewAutoTrader 创建自动交易器
@@ -114,9 +133,6 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 		// 使用Qwen
 		mcpClient.SetQwenAPIKey(config.QwenKey, "")
 		log.Printf("🤖 [%s] 使用阿里云Qwen AI", config.Name)
-	} else if config.AIModel == "grok" {
-		mcpClient.SetGrokAPIKey(config.GrokKey)
-		log.Printf("🤖 [%s] 使用Grok AI", config.Name)
 	} else {
 		// 默认使用DeepSeek
 		mcpClient.SetDeepSeekAPIKey(config.DeepSeekKey)
@@ -166,22 +182,32 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 	logDir := fmt.Sprintf("decision_logs/%s", config.ID)
 	decisionLogger := logger.NewDecisionLogger(logDir)
 
-	return &AutoTrader{
-		id:                    config.ID,
-		name:                  config.Name,
-		aiModel:               config.AIModel,
-		exchange:              config.Exchange,
-		config:                config,
-		trader:                trader,
-		mcpClient:             mcpClient,
-		decisionLogger:        decisionLogger,
-		initialBalance:        config.InitialBalance,
-		lastResetTime:         time.Now(),
-		startTime:             time.Now(),
-		callCount:             0,
-		isRunning:             false,
-		positionFirstSeenTime: make(map[string]int64),
-	}, nil
+	// 创建自动交易器实例
+	at := &AutoTrader{
+		id:             config.ID,
+		name:           config.Name,
+		aiModel:        config.AIModel,
+		exchange:       config.Exchange,
+		config:         config,
+		trader:         trader,
+		mcpClient:      mcpClient,
+		decisionLogger: decisionLogger,
+		initialBalance: config.InitialBalance,
+		lastResetTime:  time.Now(),
+		startTime:      time.Now(),
+		callCount:      0,
+		isRunning:      false,
+		openTrades:     make(map[string]*RecentTrade), // 初始化未平仓交易map (symbol_side -> trade)
+		recentTrades:   make(map[string]*RecentTrade), // 初始化最近交易记录map (symbol -> trade)
+	}
+	
+	// 尝试加载保存的最近交易记录
+	err = at.loadRecentTrades()
+	if err != nil {
+		log.Printf("  ⚠ 加载最近交易记录失败: %v (这是正常的，如果是首次运行)", err)
+	}
+	
+	return at, nil
 }
 
 // Run 运行自动交易主循环
@@ -222,9 +248,9 @@ func (at *AutoTrader) Stop() {
 func (at *AutoTrader) runCycle() error {
 	at.callCount++
 
-	log.Printf("\n" + strings.Repeat("=", 70))
+	log.Printf("\n%s", strings.Repeat("=", 70))
 	log.Printf("⏰ %s - AI决策周期 #%d", time.Now().Format("2006-01-02 15:04:05"), at.callCount)
-	log.Printf(strings.Repeat("=", 70))
+	log.Printf("%s", strings.Repeat("=", 70))
 
 	// 创建决策记录
 	record := &logger.DecisionRecord{
@@ -286,6 +312,19 @@ func (at *AutoTrader) runCycle() error {
 		record.CandidateCoins = append(record.CandidateCoins, coin.Symbol)
 	}
 
+	// 保存最近交易记录
+	for _, trade := range at.recentTrades {
+		record.RecentTrades = append(record.RecentTrades, logger.RecentTrade{
+			Symbol:     trade.Symbol,
+			Side:       trade.Side,
+			EntryPrice: trade.EntryPrice,
+			ClosePrice: trade.ClosePrice,
+			Duration:   trade.Duration,
+			PnLPct:     trade.PnLPct,
+			Reason:     trade.Reason,
+		})
+	}
+
 	log.Printf("📊 账户净值: %.2f USDT | 可用: %.2f USDT | 持仓: %d",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance, ctx.Account.PositionCount)
 
@@ -319,11 +358,11 @@ func (at *AutoTrader) runCycle() error {
 
 			// 打印AI思维链（即使有错误）
 			if decision != nil && decision.CoTTrace != "" {
-				log.Printf("\n" + strings.Repeat("-", 70))
+				log.Printf("\n%s", strings.Repeat("-", 70))
 				log.Println("💭 AI思维链分析（错误情况）:")
 				log.Println(strings.Repeat("-", 70))
 				log.Println(decision.CoTTrace)
-				log.Printf(strings.Repeat("-", 70) + "\n")
+				log.Printf("%s\n", strings.Repeat("-", 70))
 			}
 
 			at.decisionLogger.LogDecision(record)
@@ -332,11 +371,11 @@ func (at *AutoTrader) runCycle() error {
 	}
 
 	// 5. 打印AI思维链
-	log.Printf("\n" + strings.Repeat("-", 70))
+	log.Printf("\n%s", strings.Repeat("-", 70))
 	log.Println("💭 AI思维链分析:")
 	log.Println(strings.Repeat("-", 70))
 	log.Println(decision.CoTTrace)
-	log.Printf(strings.Repeat("-", 70) + "\n")
+	log.Printf("%s\n", strings.Repeat("-", 70))
 
 	// 6. 打印AI决策
 	log.Printf("📋 AI决策列表 (%d 个):\n", len(decision.Decisions))
@@ -458,16 +497,25 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 			pnlPct = ((entryPrice - markPrice) / entryPrice) * float64(leverage) * 100
 		}
 
-		// 跟踪持仓首次出现时间
+		// 跟踪持仓
 		posKey := symbol + "_" + side
 		currentPositionKeys[posKey] = true
-		if _, exists := at.positionFirstSeenTime[posKey]; !exists {
-			// 新持仓，记录当前时间
-			at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
+		
+		// 优先使用API返回的updateTime值
+		updateTime, ok := pos["updateTime"].(int64)
+		if !ok || updateTime == 0 {
+			// 如果API没有提供updateTime，使用当前时间
+			updateTime = time.Now().UnixMilli()
 		}
-		updateTime := at.positionFirstSeenTime[posKey]
 
-		positionInfos = append(positionInfos, decision.PositionInfo{
+		// 获取开仓理由（如果有未平仓交易记录）
+		openingReason := ""
+		if trade, exists := at.openTrades[posKey]; exists {
+			openingReason = trade.Reason
+		}
+
+		// 确保使用正确的updateTime值
+		positionInfo := decision.PositionInfo{
 			Symbol:           symbol,
 			Side:             side,
 			EntryPrice:       entryPrice,
@@ -479,24 +527,22 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 			LiquidationPrice: liquidationPrice,
 			MarginUsed:       marginUsed,
 			UpdateTime:       updateTime,
-		})
+			OpeningReason:    openingReason,
+		}
+		positionInfos = append(positionInfos, positionInfo)
 	}
 
 	// 清理已平仓的持仓记录
-	for key := range at.positionFirstSeenTime {
+	for key := range at.openTrades {
 		if !currentPositionKeys[key] {
-			delete(at.positionFirstSeenTime, key)
+			delete(at.openTrades, key)
 		}
 	}
 
 	// 3. 获取合并的候选币种池（AI500 + OI Top，去重）
-	// 为不同的AI模型设置不同的候选币种限制
-	// QWen模型分析能力可能较弱，限制为较少的币种以避免输出过多内容
-	ai500Limit := 20 // DeepSeek等模型默认值
-	if at.aiModel == "qwen" || at.config.UseQwen {
-		ai500Limit = 10 // QWen模型限制为10个候选币种
-		log.Printf("⚠️ 使用QWen模型，限制候选币种数量为%d个", ai500Limit)
-	}
+	// 设置候选币种数量
+	// 不再为任何模型设置数量限制
+	ai500Limit := 20 // 所有模型使用相同的值
 
 	// 获取合并后的币种池（AI500 + OI Top）
 	mergedPool, err := pool.GetMergedCoinPool(ai500Limit)
@@ -545,6 +591,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		CallCount:       at.callCount,
 		BTCETHLeverage:  at.config.BTCETHLeverage,  // 使用配置的杠杆倍数
 		AltcoinLeverage: at.config.AltcoinLeverage, // 使用配置的杠杆倍数
+		PairLeverage:    at.config.PairLeverage,    // 使用配置的交易对特定杠杆
 		Account: decision.AccountInfo{
 			TotalEquity:      totalEquity,
 			AvailableBalance: availableBalance,
@@ -556,8 +603,24 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		},
 		Positions:      positionInfos,
 		CandidateCoins: candidateCoins,
+		RecentTrades:   make(map[string]*decision.RecentTrade), // 初始化最近交易记录map
 		Performance:    performance, // 添加历史表现分析
 	}
+
+	// 复制最近交易记录，从本地类型转换为decision包中的类型
+	for symbol, trade := range at.recentTrades {
+		ctx.RecentTrades[symbol] = &decision.RecentTrade{
+			Symbol:     trade.Symbol,
+			Side:       trade.Side,
+			EntryPrice: trade.EntryPrice,
+			ClosePrice: trade.ClosePrice,
+			Duration:   trade.Duration,
+			PnLPct:     trade.PnLPct,
+			Reason:     trade.Reason,
+		}
+	}
+	
+
 
 	return ctx, nil
 }
@@ -619,9 +682,21 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 
 	log.Printf("  ✓ 开仓成功，订单ID: %v, 数量: %.4f", order["orderId"], quantity)
 
-	// 记录开仓时间
+	// 创建并记录交易记录
+	now := time.Now()
+	trade := &RecentTrade{
+		Symbol:     decision.Symbol,
+		Side:       "LONG",
+		EntryPrice: marketData.CurrentPrice,
+		ClosePrice: 0, // 未平仓，设置为0
+		Reason:     decision.Reasoning,
+		OpenTime:   now,
+		CloseTime:  now, // 临时值，平仓时更新
+	}
+
+	// 存储到未平仓交易map中
 	posKey := decision.Symbol + "_long"
-	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
+	at.openTrades[posKey] = trade
 
 	// 设置止损止盈
 	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
@@ -672,9 +747,21 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 
 	log.Printf("  ✓ 开仓成功，订单ID: %v, 数量: %.4f", order["orderId"], quantity)
 
-	// 记录开仓时间
+	// 创建并记录交易记录
+	now := time.Now()
+	trade := &RecentTrade{
+		Symbol:     decision.Symbol,
+		Side:       "SHORT",
+		EntryPrice: marketData.CurrentPrice,
+		ClosePrice: 0, // 未平仓，设置为0
+		Reason:     decision.Reasoning,
+		OpenTime:   now,
+		CloseTime:  now, // 临时值，平仓时更新
+	}
+
+	// 存储到未平仓交易map中
 	posKey := decision.Symbol + "_short"
-	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
+	at.openTrades[posKey] = trade
 
 	// 设置止损止盈
 	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
@@ -698,6 +785,45 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	}
 	actionRecord.Price = marketData.CurrentPrice
 
+	// 从未平仓交易map中获取交易记录
+	posKey := decision.Symbol + "_LONG"
+	trade, exists := at.openTrades[posKey]
+	if !exists {
+		return fmt.Errorf("❌ 未找到 %s 的未平仓记录", decision.Symbol)
+	}
+	
+	// 计算持有时间
+	now := time.Now()
+	durationMs := now.UnixMilli() - trade.OpenTime.UnixMilli()
+	durationMin := durationMs / (1000 * 60) // 转换为分钟
+	var durationStr string
+	if durationMin < 60 {
+		durationStr = fmt.Sprintf("%d分钟", durationMin)
+	} else {
+		durationHour := durationMin / 60
+		durationMinRemainder := durationMin % 60
+		durationStr = fmt.Sprintf("%d小时%d分钟", durationHour, durationMinRemainder)
+	}
+	
+	// 即使无法获取持仓详情，也要创建交易记录
+	if durationStr == "" {
+		durationStr = "未知"
+	}
+	
+	// 如果没有入场价格，使用当前价格作为默认值
+	if trade.EntryPrice == 0 {
+		trade.EntryPrice = marketData.CurrentPrice
+		log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
+		// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
+		modifiedReason := decision.Reasoning
+		// 使用正则表达式移除任何格式的盈亏百分比信息
+		profitRegex := regexp.MustCompile(`[亏损盈利][+-]?\d+(\.\d+)?%`)
+		modifiedReason = profitRegex.ReplaceAllString(modifiedReason, "止损控制风险")
+		decision.Reasoning = modifiedReason
+	}
+	
+	// 计算盈亏百分比将在平仓成功后更新
+	
 	// 平仓
 	order, err := at.trader.CloseLong(decision.Symbol, 0) // 0 = 全部平仓
 	if err != nil {
@@ -708,6 +834,44 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
 	}
+	
+	// 尝试获取实际成交价格
+	actualClosePrice := marketData.CurrentPrice
+	if avgPrice, ok := order["avgPrice"].(string); ok {
+		if price, err := strconv.ParseFloat(avgPrice, 64); err == nil && price > 0 {
+			actualClosePrice = price
+		}
+	} else if avgPrice, ok := order["avgPrice"].(float64); ok && avgPrice > 0 {
+		actualClosePrice = avgPrice
+	}
+
+	// 更新交易记录
+	trade.ClosePrice = actualClosePrice
+	trade.Duration = durationStr
+	trade.CloseTime = time.Now()
+	trade.Reason = decision.Reasoning
+
+	// 计算盈亏百分比
+	if trade.EntryPrice != 0 && math.Abs(actualClosePrice-trade.EntryPrice) > 0.0001 {
+		trade.PnLPct = ((actualClosePrice - trade.EntryPrice) / trade.EntryPrice) * 100
+	} else {
+		trade.PnLPct = 0
+	}
+
+	// 将交易记录移到recentTrades中，并从openTrades中移除
+	at.recentTrades[decision.Symbol] = trade
+
+	// 保存交易记录到文件
+	if err := at.saveRecentTrades(); err != nil {
+		log.Printf("  ⚠ 保存交易记录失败: %v", err)
+	}
+
+	log.Printf("  ✅ 已更新交易记录: %s LONG | 入场%.4f | 出场%.4f | 盈亏%+.2f%%", 
+		decision.Symbol, trade.EntryPrice, actualClosePrice, trade.PnLPct)
+	
+
+	// 清理已平仓的记录
+	delete(at.openTrades, posKey)
 
 	log.Printf("  ✓ 平仓成功")
 	return nil
@@ -724,6 +888,45 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	}
 	actionRecord.Price = marketData.CurrentPrice
 
+	// 从未平仓交易map中获取交易记录
+	posKey := decision.Symbol + "_SHORT"
+	trade, exists := at.openTrades[posKey]
+	if !exists {
+		return fmt.Errorf("❌ 未找到 %s 的未平仓记录", decision.Symbol)
+	}
+	
+	// 计算持有时间
+	now := time.Now()
+	durationMs := now.UnixMilli() - trade.OpenTime.UnixMilli()
+	durationMin := durationMs / (1000 * 60) // 转换为分钟
+	var durationStr string
+	if durationMin < 60 {
+		durationStr = fmt.Sprintf("%d分钟", durationMin)
+	} else {
+		durationHour := durationMin / 60
+		durationMinRemainder := durationMin % 60
+		durationStr = fmt.Sprintf("%d小时%d分钟", durationHour, durationMinRemainder)
+	}
+	
+	// 即使无法获取持仓详情，也要创建交易记录
+	if durationStr == "" {
+		durationStr = "未知"
+	}
+	
+	// 如果没有入场价格，使用当前价格作为默认值
+	if trade.EntryPrice == 0 {
+		trade.EntryPrice = marketData.CurrentPrice
+		log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
+		// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
+		modifiedReason := decision.Reasoning
+		// 使用正则表达式移除任何格式的盈亏百分比信息
+		profitRegex := regexp.MustCompile(`[亏损盈利][+-]?\d+(\.\d+)?%`)
+		modifiedReason = profitRegex.ReplaceAllString(modifiedReason, "止损控制风险")
+		decision.Reasoning = modifiedReason
+	}
+	
+	// 计算盈亏百分比将在平仓成功后更新
+	
 	// 平仓
 	order, err := at.trader.CloseShort(decision.Symbol, 0) // 0 = 全部平仓
 	if err != nil {
@@ -734,6 +937,44 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
 	}
+	
+	// 尝试获取实际成交价格
+	actualClosePrice := marketData.CurrentPrice
+	if avgPrice, ok := order["avgPrice"].(string); ok {
+		if price, err := strconv.ParseFloat(avgPrice, 64); err == nil && price > 0 {
+			actualClosePrice = price
+		}
+	} else if avgPrice, ok := order["avgPrice"].(float64); ok && avgPrice > 0 {
+		actualClosePrice = avgPrice
+	}
+
+	// 更新交易记录
+	trade.ClosePrice = actualClosePrice
+	trade.Duration = durationStr
+	trade.CloseTime = time.Now()
+	trade.Reason = decision.Reasoning
+
+	// 计算盈亏百分比
+	if trade.EntryPrice != 0 && math.Abs(actualClosePrice-trade.EntryPrice) > 0.0001 {
+		trade.PnLPct = ((trade.EntryPrice - actualClosePrice) / trade.EntryPrice) * 100
+	} else {
+		trade.PnLPct = 0
+	}
+
+	// 将交易记录移到recentTrades中，并从openTrades中移除
+	at.recentTrades[decision.Symbol] = trade
+
+	// 保存交易记录到文件
+	if err := at.saveRecentTrades(); err != nil {
+		log.Printf("  ⚠ 保存交易记录失败: %v", err)
+	}
+
+	log.Printf("  ✅ 已更新交易记录: %s SHORT | 入场%.4f | 出场%.4f | 盈亏%+.2f%%", 
+		decision.Symbol, trade.EntryPrice, actualClosePrice, trade.PnLPct)
+	
+
+	// 清理已平仓的记录
+	delete(at.openTrades, posKey)
 
 	log.Printf("  ✓ 平仓成功")
 	return nil
@@ -759,14 +1000,66 @@ func (at *AutoTrader) GetDecisionLogger() *logger.DecisionLogger {
 	return at.decisionLogger
 }
 
+// saveRecentTrades 保存最近交易记录到文件
+func (at *AutoTrader) saveRecentTrades() error {
+	// 确保目录存在
+	dir := fmt.Sprintf("data/%s", at.id)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("创建数据目录失败: %w", err)
+	}
+	
+	// 保存到文件
+	filePath := fmt.Sprintf("%s/recent_trades.json", dir)
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %w", err)
+	}
+	defer file.Close()
+	
+	// 序列化到JSON
+	encode := json.NewEncoder(file)
+	encode.SetIndent("", "  ")
+	if err := encode.Encode(at.recentTrades); err != nil {
+		return fmt.Errorf("序列化交易记录失败: %w", err)
+	}
+	
+	log.Printf("  ✅ 已保存 %d 条最近交易记录到 %s", len(at.recentTrades), filePath)
+	return nil
+}
+
+// loadRecentTrades 从文件加载最近交易记录
+func (at *AutoTrader) loadRecentTrades() error {
+	filePath := fmt.Sprintf("data/%s/recent_trades.json", at.id)
+	
+	// 检查文件是否存在
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return fmt.Errorf("交易记录文件不存在: %s", filePath)
+	}
+	
+	// 打开文件
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer file.Close()
+	
+	// 反序列化
+	decode := json.NewDecoder(file)
+	if err := decode.Decode(&at.recentTrades); err != nil {
+		return fmt.Errorf("反序列化交易记录失败: %w", err)
+	}
+	
+	log.Printf("  ✅ 已加载 %d 条最近交易记录", len(at.recentTrades))
+	return nil
+}
+
 // GetStatus 获取系统状态（用于API）
 func (at *AutoTrader) GetStatus() map[string]interface{} {
 	var aiProvider string
 	switch at.config.AIModel {
 	case "qwen":
 		aiProvider = "Qwen"
-	case "grok":
-		aiProvider = "Grok"
+		// Grok实现已移除
 	case "deepseek":
 		fallthrough
 	default:

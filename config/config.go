@@ -7,48 +7,41 @@ import (
 	"time"
 )
 
-// TraderConfig 单个trader的配置
+// TraderConfig 交易员配置
 type TraderConfig struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`  // 是否启用该trader
-	AIModel string `json:"ai_model"` // "qwen" or "deepseek"
-
-	// 交易平台选择（二选一）
-	Exchange string `json:"exchange"` // "binance" or "hyperliquid"
-
-	// 币安配置
-	BinanceAPIKey    string `json:"binance_api_key,omitempty"`
-	BinanceSecretKey string `json:"binance_secret_key,omitempty"`
-
-	// Hyperliquid配置
-	HyperliquidPrivateKey string `json:"hyperliquid_private_key,omitempty"`
-	HyperliquidWalletAddr string `json:"hyperliquid_wallet_addr,omitempty"`
-	HyperliquidTestnet    bool   `json:"hyperliquid_testnet,omitempty"`
-
-	// Aster配置
-	AsterUser       string `json:"aster_user,omitempty"`        // Aster主钱包地址
-	AsterSigner     string `json:"aster_signer,omitempty"`      // Aster API钱包地址
-	AsterPrivateKey string `json:"aster_private_key,omitempty"` // Aster API钱包私钥
-
-	// AI配置
-	QwenKey     string `json:"qwen_key,omitempty"`
-	DeepSeekKey string `json:"deepseek_key,omitempty"`
-	GrokKey     string `json:"grok_key,omitempty"`
-
-	// 自定义AI API配置（支持任何OpenAI格式的API）
-	CustomAPIURL    string `json:"custom_api_url,omitempty"`
-	CustomAPIKey    string `json:"custom_api_key,omitempty"`
-	CustomModelName string `json:"custom_model_name,omitempty"`
-
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	Enabled             bool    `json:"enabled"`
+	AIModel             string  `json:"ai_model"` // "qwen", "deepseek", "custom"
+	Exchange            string  `json:"exchange"` // "binance", "hyperliquid", "aster"
+	BinanceAPIKey       string  `json:"binance_api_key"`
+	BinanceSecretKey    string  `json:"binance_secret_key"`
+	DeepSeekKey         string  `json:"deepseek_key"`
+	QwenKey             string  `json:"qwen_key"`
+	CustomAPIURL        string  `json:"custom_api_url"`
+	CustomAPIKey        string  `json:"custom_api_key"`
+	CustomModelName     string  `json:"custom_model_name"`
+	HyperliquidPrivateKey string `json:"hyperliquid_private_key"`
+	HyperliquidWalletAddr string `json:"hyperliquid_wallet_addr"`
+	HyperliquidTestnet  bool    `json:"hyperliquid_testnet"`
+	AsterUser           string  `json:"aster_user"`
+	AsterSigner         string  `json:"aster_signer"`
+	AsterPrivateKey     string  `json:"aster_private_key"`
+	
+	// 杠杆配置（交易员级别，如果设置则覆盖根级别的配置）
+	BTCETHLeverage  int            `json:"btc_eth_leverage,omitempty"`  // BTC和ETH的杠杆倍数（主账户建议5-50，子账户≤5）
+	AltcoinLeverage int            `json:"altcoin_leverage,omitempty"` // 山寨币的杠杆倍数（主账户建议5-20，子账户≤5）
+	PairLeverage    map[string]int `json:"pair_leverage,omitempty"`    // 特定交易对的杠杆倍数 (键: 交易对, 值: 杠杆倍数)
+	
 	InitialBalance      float64 `json:"initial_balance"`
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 }
 
 // LeverageConfig 杠杆配置
 type LeverageConfig struct {
-	BTCETHLeverage  int `json:"btc_eth_leverage"` // BTC和ETH的杠杆倍数（主账户建议5-50，子账户≤5）
-	AltcoinLeverage int `json:"altcoin_leverage"` // 山寨币的杠杆倍数（主账户建议5-20，子账户≤5）
+	BTCETHLeverage  int            `json:"btc_eth_leverage"`  // BTC和ETH的杠杆倍数（主账户建议5-50，子账户≤5）
+	AltcoinLeverage int            `json:"altcoin_leverage"` // 山寨币的杠杆倍数（主账户建议5-20，子账户≤5）
+	PairLeverage    map[string]int `json:"pair_leverage"`    // 特定交易对的杠杆倍数 (键: 交易对, 值: 杠杆倍数)
 }
 
 // Config 总配置
@@ -123,12 +116,9 @@ func (c *Config) Validate() error {
 		if trader.Name == "" {
 			return fmt.Errorf("trader[%d]: Name不能为空", i)
 		}
-		if trader.AIModel != "qwen" && trader.AIModel != "deepseek" && trader.AIModel != "grok" && trader.AIModel != "custom" {
-			return fmt.Errorf("trader[%d]: ai_model必须是 'qwen', 'deepseek', 'grok' 或 'custom'", i)
-		}
-		if trader.BinanceAPIKey == "" || trader.BinanceSecretKey == "" {
-			return fmt.Errorf("trader[%d]: 币安API密钥不能为空", i)
-		}
+		if trader.AIModel != "qwen" && trader.AIModel != "deepseek" && trader.AIModel != "custom" {
+		return fmt.Errorf("trader[%d]: ai_model必须是 'qwen', 'deepseek' 或 'custom'", i)
+	}
 
 		// 验证交易平台配置
 		if trader.Exchange == "" {
@@ -159,9 +149,7 @@ func (c *Config) Validate() error {
 		if trader.AIModel == "deepseek" && trader.DeepSeekKey == "" {
 			return fmt.Errorf("trader[%d]: 使用DeepSeek时必须配置deepseek_key", i)
 		}
-		if trader.AIModel == "grok" && trader.GrokKey == "" {
-			return fmt.Errorf("trader[%d]: 使用Grok时必须配置grok_key", i)
-		}
+		// Grok实现已移除，不再需要相关配置验证
 		if trader.AIModel == "custom" {
 			if trader.CustomAPIURL == "" {
 				return fmt.Errorf("trader[%d]: 使用自定义API时必须配置custom_api_url", i)

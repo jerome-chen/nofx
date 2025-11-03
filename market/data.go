@@ -83,20 +83,14 @@ func Get(symbol string) (*Data, error) {
 	// 标准化symbol
 	symbol = Normalize(symbol)
 
-	// 获取3分钟K线数据 (最近10个)
-	klines3m, err := getKlines(symbol, "3m", 40) // 多获取一些用于计算
-	if err != nil {
-		return nil, fmt.Errorf("获取3分钟K线失败: %v", err)
-	}
-
 	// 获取5分钟K线数据
 	klines5m, err := getKlines(symbol, "5m", 40)
 	if err != nil {
 		return nil, fmt.Errorf("获取5分钟K线失败: %v", err)
 	}
 
-	// 获取15分钟K线数据
-	klines15m, err := getKlines(symbol, "15m", 40)
+	// 获取15分钟K线数据 (最近10个)
+	klines15m, err := getKlines(symbol, "15m", 40) // 多获取一些用于计算
 	if err != nil {
 		return nil, fmt.Errorf("获取15分钟K线失败: %v", err)
 	}
@@ -113,23 +107,29 @@ func Get(symbol string) (*Data, error) {
 		return nil, fmt.Errorf("获取1小时K线失败: %v", err)
 	}
 
-	// 获取4小时K线数据 (最近10个)
+	// 获取4小时K线数据
 	klines4h, err := getKlines(symbol, "4h", 60) // 多获取用于计算指标
 	if err != nil {
 		return nil, fmt.Errorf("获取4小时K线失败: %v", err)
 	}
 
-	// 计算当前指标 (基于3分钟最新数据)
-	currentPrice := klines3m[len(klines3m)-1].Close
-	currentEMA20 := calculateEMA(klines3m, 20)
-	currentMACD := calculateMACD(klines3m)
-	currentRSI7 := calculateRSI(klines3m, 7)
+	// 获取1天K线数据
+	klines1d, err := getKlines(symbol, "1d", 60)
+	if err != nil {
+		return nil, fmt.Errorf("获取1天K线失败: %v", err)
+	}
+
+	// 计算当前指标 (基于15分钟最新数据)
+	currentPrice := klines15m[len(klines15m)-1].Close
+	currentEMA20 := calculateEMA(klines15m, 20)
+	currentMACD := calculateMACD(klines15m)
+	currentRSI7 := calculateRSI(klines15m, 7)
 
 	// 计算价格变化百分比
-	// 1小时价格变化 = 20个3分钟K线前的价格
+	// 1小时价格变化 = 4个15分钟K线前的价格
 	priceChange1h := 0.0
-	if len(klines3m) >= 21 { // 至少需要21根K线 (当前 + 20根前)
-		price1hAgo := klines3m[len(klines3m)-21].Close
+	if len(klines15m) >= 5 { // 至少需要5根K线 (当前 + 4根前)
+		price1hAgo := klines15m[len(klines15m)-5].Close
 		if price1hAgo > 0 {
 			priceChange1h = ((currentPrice - price1hAgo) / price1hAgo) * 100
 		}
@@ -144,6 +144,7 @@ func Get(symbol string) (*Data, error) {
 		}
 	}
 
+
 	// 获取OI数据
 	oiData, err := getOpenInterestData(symbol)
 	if err != nil {
@@ -155,7 +156,7 @@ func Get(symbol string) (*Data, error) {
 	fundingRate, _ := getFundingRate(symbol)
 
 	// 计算日内系列数据
-	intradayData := calculateIntradaySeries(klines3m)
+	intradayData := calculateIntradaySeries(klines15m)
 
 	// 计算长期数据
 	longerTermData := calculateLongerTermData(klines4h)
@@ -164,12 +165,12 @@ func Get(symbol string) (*Data, error) {
 	timeFrameData := make(map[string]*TimeFrameData)
 
 	// 计算并存储各时间周期的数据
-	timeFrameData["3m"] = calculateTimeFrameData(klines3m)
 	timeFrameData["5m"] = calculateTimeFrameData(klines5m)
 	timeFrameData["15m"] = calculateTimeFrameData(klines15m)
 	timeFrameData["30m"] = calculateTimeFrameData(klines30m)
 	timeFrameData["1h"] = calculateTimeFrameData(klines1h)
 	timeFrameData["4h"] = calculateTimeFrameData(klines4h)
+	timeFrameData["1d"] = calculateTimeFrameData(klines1d)
 
 	return &Data{
 		Symbol:            symbol,
@@ -534,60 +535,109 @@ func getFundingRate(symbol string) (float64, error) {
 func Format(data *Data) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("current_price = %.2f, current_ema20 = %.3f, current_macd = %.3f, current_rsi (7 period) = %.3f\n\n",
+	// 根据价格动态确定小数位数
+	pricePrecision := getDynamicPrecision(data.CurrentPrice)
+	priceFormat := fmt.Sprintf("%%.%df", pricePrecision)
+	
+	// 核心数据使用动态精度
+	sb.WriteString(fmt.Sprintf("current_price = "+priceFormat+", current_ema20 = "+priceFormat+", current_macd = %.2f, current_rsi (7 period) = %.2f\n\n",
 		data.CurrentPrice, data.CurrentEMA20, data.CurrentMACD, data.CurrentRSI7))
 
-	sb.WriteString(fmt.Sprintf("In addition, here is the latest %s open interest and funding rate for perps:\n\n",
-		data.Symbol))
+	// 简化Open Interest和Funding Rate描述
+	sb.WriteString(fmt.Sprintf("Latest %s OI & Funding:\n\n", data.Symbol))
 
 	if data.OpenInterest != nil {
-		sb.WriteString(fmt.Sprintf("Open Interest: Latest: %.2f Average: %.2f\n\n",
+		// 大额数值使用更少的小数位
+		sb.WriteString(fmt.Sprintf("OI: Latest: %.1f Average: %.1f\n\n",
 			data.OpenInterest.Latest, data.OpenInterest.Average))
 	}
 
-	sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))
+	// 保持科学计数法但减少精度
+	sb.WriteString(fmt.Sprintf("Funding: %.1e\n\n", data.FundingRate))
 
 	// 显示多时间周期数据
-	sb.WriteString("=== 多时间周期数据 ===\n\n")
+	sb.WriteString("=== 时间周期数据 ===\n\n")
 
-	// 按顺序输出不同时间周期的数据：3m, 5m, 15m, 30m, 1h, 4h
-	timeFrames := []string{"3m", "5m", "15m", "30m", "1h", "4h"}
+	// 按顺序输出不同时间周期的数据：15m, 1h, 4h, 1d
+	timeFrames := []string{"15m", "1h", "4h", "1d"}
 	for _, tf := range timeFrames {
 		if tfData, exists := data.TimeFrameData[tf]; exists {
-			sb.WriteString(fmt.Sprintf("[时间周期: %s]\n", tf))
-			sb.WriteString(fmt.Sprintf("EMA20: %.3f | EMA50: %.3f\n", tfData.EMA20, tfData.EMA50))
-			sb.WriteString(fmt.Sprintf("MACD: %.3f | RSI7: %.3f | RSI14: %.3f\n", tfData.MACD, tfData.RSI7, tfData.RSI14))
-			sb.WriteString(fmt.Sprintf("ATR3: %.3f | ATR14: %.3f\n", tfData.ATR3, tfData.ATR14))
-			sb.WriteString(fmt.Sprintf("Volume: %.3f | AvgVolume: %.3f\n\n", tfData.Volume, tfData.AvgVolume))
+			sb.WriteString(fmt.Sprintf("[%s]\n", tf))
+			// 指标使用动态精度
+			tfFormat := fmt.Sprintf("%%.%df", getDynamicPrecision(tfData.EMA20))
+			sb.WriteString(fmt.Sprintf("EMA20: "+tfFormat+" | EMA50: "+tfFormat+"\n", tfData.EMA20, tfData.EMA50))
+			sb.WriteString(fmt.Sprintf("MACD: %.2f | RSI7: %.2f | RSI14: %.2f\n", tfData.MACD, tfData.RSI7, tfData.RSI14))
+			sb.WriteString(fmt.Sprintf("ATR3: %.2f | ATR14: %.2f\n", tfData.ATR3, tfData.ATR14))
+			// 大额交易量使用更少的小数位
+			sb.WriteString(fmt.Sprintf("Volume: %.1f | AvgVolume: %.1f\n\n", tfData.Volume, tfData.AvgVolume))
 		}
 	}
 
-	// 保留原有数据格式作为补充
+	// 优化Intraday系列数据表示 - 只显示最新5个数据点
 	if data.IntradaySeries != nil {
-		sb.WriteString("Intraday series (3‑minute intervals, oldest → latest):\n\n")
+		sb.WriteString("Recent 15m data (latest 5):\n\n")
 
+		// 只显示最新的10个数据点
+		maxPoints := 10
+		
 		if len(data.IntradaySeries.MidPrices) > 0 {
-			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
+			startIdx := len(data.IntradaySeries.MidPrices) - maxPoints
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			sb.WriteString(fmt.Sprintf("Prices: %s\n\n", formatFloatSliceDynamic(data.IntradaySeries.MidPrices[startIdx:])))
 		}
 
 		if len(data.IntradaySeries.EMA20Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.IntradaySeries.EMA20Values)))
+			startIdx := len(data.IntradaySeries.EMA20Values) - maxPoints
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			sb.WriteString(fmt.Sprintf("EMA20: %s\n\n", formatFloatSliceDynamic(data.IntradaySeries.EMA20Values[startIdx:])))
 		}
 
 		if len(data.IntradaySeries.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
+			startIdx := len(data.IntradaySeries.MACDValues) - maxPoints
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			sb.WriteString(fmt.Sprintf("MACD: %s\n\n", formatFloatSliceDynamic(data.IntradaySeries.MACDValues[startIdx:])))
 		}
 
 		if len(data.IntradaySeries.RSI7Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (7‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI7Values)))
+			startIdx := len(data.IntradaySeries.RSI7Values) - maxPoints
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			sb.WriteString(fmt.Sprintf("RSI7: %s\n\n", formatFloatSliceDynamic(data.IntradaySeries.RSI7Values[startIdx:])))
 		}
 
-		if len(data.IntradaySeries.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI14Values)))
-		}
+		// 移除RSI14的重复输出，因为在时间周期数据中已有
 	}
 
 	return sb.String()
+}
+
+// getDynamicPrecision 根据数值大小动态确定小数位数
+func getDynamicPrecision(value float64) int {
+	absValue := math.Abs(value)
+	if absValue == 0 {
+		return 2
+	}
+	// 对于非常小的值（如SHIB），使用更多小数位
+	if absValue < 0.01 {
+		return 6
+	} else if absValue < 0.1 {
+		return 4
+	} else if absValue < 1 {
+		return 3
+	} else if absValue < 100 {
+		return 2
+	} else if absValue < 1000 {
+		return 1
+	}
+	// 大数值使用整数表示
+	return 0
 }
 
 // formatFloatSlice 格式化float64切片为字符串
@@ -597,6 +647,43 @@ func formatFloatSlice(values []float64) string {
 		strValues[i] = fmt.Sprintf("%.3f", v)
 	}
 	return "[" + strings.Join(strValues, ", ") + "]"
+}
+
+// formatFloatSliceDynamic 根据数组中值的大小动态格式化float64切片
+func formatFloatSliceDynamic(values []float64) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	
+	// 找出数组中最小值和最大值，确定合适的精度
+	minVal := values[0]
+	maxVal := values[0]
+	for _, v := range values {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	
+	// 使用最小和最大值来确定精度
+	precision := getDynamicPrecision(min(minVal, maxVal))
+	format := fmt.Sprintf("%%.%df", precision)
+	
+	strValues := make([]string, len(values))
+	for i, v := range values {
+		strValues[i] = fmt.Sprintf(format, v)
+	}
+	return "[" + strings.Join(strValues, ", ") + "]"
+}
+
+// min 返回两个float64中的较小值
+func min(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Normalize 标准化symbol,确保是USDT交易对
