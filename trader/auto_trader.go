@@ -508,6 +508,44 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 			// 如果API没有提供updateTime，使用当前时间
 			updateTime = time.Now().UnixMilli()
 		}
+		
+		// 检查是否有交易所有持仓但本地无记录的情况
+		if _, exists := at.openTrades[posKey]; !exists {
+			// 创建新的交易记录以同步交易所持仓
+			now := time.Now()
+			// 设置一个合理的OpenTime，使用updateTime或者当前时间
+			openTime := now
+			if updateTime > 0 {
+				openTime = time.Unix(0, updateTime*int64(time.Millisecond))
+			}
+			
+			// 创建本地交易记录
+			tradeRecord := &LocalRecentTrade{
+				Symbol:     symbol,
+				Side:       strings.ToUpper(side),
+				EntryPrice: entryPrice,
+				ClosePrice: 0, // 未平仓
+				Reason:     "系统同步持仓（程序重启或手动开仓）",
+				CloseTime:  0,
+			}
+			
+			// 创建交易包装器
+			type tradeWrapper struct {
+				RecentTrade *LocalRecentTrade
+				OpenTime    time.Time
+			}
+			trade := tradeWrapper{
+				RecentTrade: tradeRecord,
+				OpenTime:    openTime,
+			}
+			
+			// 添加到openTrades
+			at.openTrades[posKey] = trade
+			at.recentTrades[symbol] = tradeRecord
+			
+			log.Printf("  ⚠ 检测到交易所有持仓但本地无记录，已同步: %s %s | 入场%.4f", 
+				symbol, side, entryPrice)
+		}
 
 		// 获取开仓理由（如果有未平仓交易记录）
 		openingReason := ""
@@ -540,9 +578,71 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		positionInfos = append(positionInfos, positionInfo)
 	}
 
-	// 清理已平仓的持仓记录
+	// 清理已平仓的持仓记录并处理TP/SL自动平仓情况
 	for key := range at.openTrades {
 		if !currentPositionKeys[key] {
+			// 持仓已不在交易所，但我们有本地记录，说明可能是TP/SL自动平仓
+			trade, exists := at.openTrades[key]
+			if exists {
+				// 尝试获取交易详情
+				type tradeWrapper struct {
+					RecentTrade *LocalRecentTrade
+					OpenTime    time.Time
+				}
+				if tradeData, ok := trade.(tradeWrapper); ok && tradeData.RecentTrade != nil {
+					recentTrade := tradeData.RecentTrade
+					symbol := recentTrade.Symbol
+					side := recentTrade.Side
+					openTime := tradeData.OpenTime
+					
+					// 获取当前市场价格作为平仓价格
+					marketData, err := market.Get(symbol)
+					if err == nil {
+						// 计算持有时间
+						now := time.Now()
+						durationMs := now.UnixMilli() - openTime.UnixMilli()
+						durationMin := durationMs / (1000 * 60) // 转换为分钟
+						var durationStr string
+						if durationMin < 60 {
+							durationStr = fmt.Sprintf("%d分钟", durationMin)
+						} else {
+							durationHour := durationMin / 60
+							durationMinRemainder := durationMin % 60
+							durationStr = fmt.Sprintf("%d小时%d分钟", durationHour, durationMinRemainder)
+						}
+						
+						// 更新交易记录
+						recentTrade.CloseTime = now.UnixMilli()
+						recentTrade.ClosePrice = marketData.CurrentPrice
+						recentTrade.Duration = durationStr
+						
+						// 计算盈亏百分比
+						if recentTrade.EntryPrice != 0 && math.Abs(marketData.CurrentPrice-recentTrade.EntryPrice) > 0.0001 {
+							if side == "LONG" {
+								recentTrade.PnLPct = ((marketData.CurrentPrice - recentTrade.EntryPrice) / recentTrade.EntryPrice) * 100
+							} else {
+								recentTrade.PnLPct = ((recentTrade.EntryPrice - marketData.CurrentPrice) / recentTrade.EntryPrice) * 100
+							}
+						} else {
+							recentTrade.PnLPct = 0
+						}
+						
+						// 如果没有平仓原因，设置为TP/SL自动平仓
+						if recentTrade.Reason == "" {
+							recentTrade.Reason = "止盈止损自动平仓"
+						}
+						
+						log.Printf("  🔄 检测到TP/SL自动平仓: %s %s | 入场%.4f | 出场%.4f | 盈亏%+.2f%%", 
+							symbol, side, recentTrade.EntryPrice, recentTrade.ClosePrice, recentTrade.PnLPct)
+						
+						// 保存更新后的交易记录
+						if err := at.saveRecentTrades(); err != nil {
+							log.Printf("  ⚠ 保存交易记录失败: %v", err)
+						}
+					}
+				}
+			}
+			// 无论如何都从openTrades中删除
 			delete(at.openTrades, key)
 		}
 	}
