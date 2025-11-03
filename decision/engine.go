@@ -23,7 +23,7 @@ type PositionInfo struct {
 	UnrealizedPnLPct float64 `json:"unrealized_pnl_pct"`
 	LiquidationPrice float64 `json:"liquidation_price"`
 	MarginUsed       float64 `json:"margin_used"`
-	UpdateTime       int64   `json:"update_time"` // 持仓更新时间戳（毫秒）
+	UpdateTime       int64   `json:"update_time"`    // 持仓更新时间戳（毫秒）
 	OpeningReason    string  `json:"opening_reason"` // 开仓理由
 }
 
@@ -75,12 +75,12 @@ type Context struct {
 	Positions       []PositionInfo          `json:"positions"`
 	CandidateCoins  []CandidateCoin         `json:"candidate_coins"`
 	RecentTrades    map[string]*RecentTrade `json:"recent_trades"` // 每个交易对的最近一次交易记录
-	MarketDataMap   map[string]*market.Data `json:"-"` // 不序列化，但内部使用
-	OITopDataMap    map[string]*OITopData   `json:"-"` // OI Top数据映射
-	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
-	BTCETHLeverage  int                     `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
-	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
-	PairLeverage    map[string]int          `json:"-"` // 特定交易对的杠杆倍数
+	MarketDataMap   map[string]*market.Data `json:"-"`             // 不序列化，但内部使用
+	OITopDataMap    map[string]*OITopData   `json:"-"`             // OI Top数据映射
+	Performance     interface{}             `json:"-"`             // 历史表现分析（logger.PerformanceAnalysis）
+	BTCETHLeverage  int                     `json:"-"`             // BTC/ETH杠杆倍数（从配置读取）
+	AltcoinLeverage int                     `json:"-"`             // 山寨币杠杆倍数（从配置读取）
+	PairLeverage    map[string]int          `json:"-"`             // 特定交易对的杠杆倍数
 }
 
 // Decision AI的交易决策
@@ -240,7 +240,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 
 	// ⚖️ 硬约束（风险控制）
 	sb.WriteString("# ⚖️ 硬约束（风险控制）\n\n")
-	sb.WriteString("1. **风险回报比** ≥ 1:2.5（灵活处理，优质信息可放宽至 1:2）\n")
+	sb.WriteString("1. **风险回报比** ≥ 1:2.5（灵活处理，优质信号！可放宽至 1:2）\n")
 	sb.WriteString("2. **最多持仓** 5 个币种(质量大于数量)\n")
 	sb.WriteString("3. **单币仓位**\n\n")
 
@@ -259,6 +259,14 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("5. **单笔风险敞口** ≤ 账户净值 3 %\n")
 	sb.WriteString("6. **强平价** 距离 ≥ 15 %（防止过高杠杆）\n\n")
 	sb.WriteString("---\n\n")
+
+	// === 做空激励 ===
+	sb.WriteString("# 📉 做多做空平衡\n\n")
+	sb.WriteString("**重要**: 下跌趋势做空的利润 = 上涨趋势做多的利润\n\n")
+	sb.WriteString("- 上涨趋势 → 做多\n")
+	sb.WriteString("- 下跌趋势 → 做空\n")
+	sb.WriteString("- 震荡市场 → 观望\n\n")
+	sb.WriteString("**不要有做多偏见！做空是你的核心工具之一**\n\n")
 
 	// 🧭 市场结构与趋势识别
 	sb.WriteString("# 🧭 市场结构与趋势识别\n\n")
@@ -289,7 +297,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("⚠️ 重要杠杆限制：\n")
 	sb.WriteString(fmt.Sprintf("* BTC/ETH 最大杠杆: %d倍\n", btcEthLeverage))
 	sb.WriteString(fmt.Sprintf("* 山寨币最大杠杆: %d倍\n\n", altcoinLeverage))
-		if len(pairLeverage) > 0 {
+	if len(pairLeverage) > 0 {
 		sb.WriteString("    * 特定交易对限制：\n")
 		for pair, leverage := range pairLeverage {
 			sb.WriteString(fmt.Sprintf("      - %s交易对：最大杠杆：%d倍\n", pair, leverage))
@@ -357,11 +365,10 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	// 📚 指导原则
 	sb.WriteString("# 📚 指导原则\n\n")
 	sb.WriteString("1. **夏普优先**：稳定 > 爆赚\n")
-	sb.WriteString("2. **做多做空平衡**：顺势为王，勿有多头偏见，做空也是你的盈利工具之一\n")
-	sb.WriteString("3. **质量优先**：宁错过，不做低质量信号\n")
-	sb.WriteString("4. **纪律执行**：严格止损止盈，不移动防线\n")
-	sb.WriteString("5. **量化思维**：趋势 × 结构 × 形态 × 量 共振才交易\n")
-	sb.WriteString("6. **数据解释**：序列按时间升序排列，最后一项为最新数据\n\n")
+	sb.WriteString("2. **质量优先**：宁错过，不做低质量信号\n")
+	sb.WriteString("3. **纪律执行**：严格止损止盈，不移动防线\n")
+	sb.WriteString("4. **量化思维**：趋势 × 结构 × 形态 × 量 共振才交易\n")
+	sb.WriteString("5. **数据解释**：序列按时间升序排列，最后一项为最新数据\n\n")
 	sb.WriteString("---\n\n")
 	sb.WriteString("**结语**\n")
 	sb.WriteString("你是一名 Sharpe-Ratio 驱动的量化交易智能体。\n")
@@ -397,7 +404,7 @@ func buildUserPrompt(ctx *Context) string {
 	// 持仓（完整市场数据）
 	// 使用map跟踪已显示完整市场数据的币种，避免在候选币种部分重复显示
 	displayedMarketDataSymbols := make(map[string]bool)
-	
+
 	if len(ctx.Positions) > 0 {
 		sb.WriteString("## 当前持仓\n")
 		for i, pos := range ctx.Positions {
@@ -443,7 +450,7 @@ func buildUserPrompt(ctx *Context) string {
 		sb.WriteString("## 最近交易记录\n")
 		// 优先显示候选币种的最近交易记录
 		shownSymbols := make(map[string]bool)
-		
+
 		// 先显示候选币种的最近交易
 		for _, coin := range ctx.CandidateCoins {
 			if trade, exists := ctx.RecentTrades[coin.Symbol]; exists && !shownSymbols[coin.Symbol] {
@@ -451,13 +458,13 @@ func buildUserPrompt(ctx *Context) string {
 				if trade.PnLPct < 0 {
 					result = "亏损"
 				}
-				
+
 				// 格式化平仓时间
 				closeTimeStr := ""
 				if trade.CloseTime > 0 {
 					closeTimeStr = fmt.Sprintf(" | 平仓时间%s", time.UnixMilli(trade.CloseTime).Format("01-02 15:04"))
 				}
-				
+
 				sb.WriteString(fmt.Sprintf("● %s %s | 入场价%.4f | 出场价%.4f | %s%+.2f%% | 持仓%s%s\n",
 					trade.Symbol, strings.ToUpper(trade.Side),
 					trade.EntryPrice, trade.ClosePrice, result, trade.PnLPct, trade.Duration, closeTimeStr))
@@ -468,7 +475,7 @@ func buildUserPrompt(ctx *Context) string {
 				shownSymbols[coin.Symbol] = true
 			}
 		}
-		
+
 		// 显示其他交易对的最近交易（如果还有空间）
 		remainingCount := 5 - len(shownSymbols)
 		if remainingCount > 0 {
@@ -478,13 +485,13 @@ func buildUserPrompt(ctx *Context) string {
 					if trade.PnLPct < 0 {
 						result = "亏损"
 					}
-					
+
 					// 格式化平仓时间
 					closeTimeStr := ""
 					if trade.CloseTime > 0 {
 						closeTimeStr = fmt.Sprintf(" | 平仓时间%s", time.UnixMilli(trade.CloseTime).Format("01-02 15:04"))
 					}
-					
+
 					sb.WriteString(fmt.Sprintf("○ %s %s | 入场价%.4f | 出场价%.4f | %s%+.2f%% | 持仓%s%s\n",
 						trade.Symbol, strings.ToUpper(trade.Side),
 						trade.EntryPrice, trade.ClosePrice, result, trade.PnLPct, trade.Duration, closeTimeStr))
@@ -518,7 +525,7 @@ func buildUserPrompt(ctx *Context) string {
 
 		// 使用FormatMarketData输出完整市场数据
 		sb.WriteString(fmt.Sprintf("### %d. %s%s\n\n", displayedCount, coin.Symbol, sourceTags))
-		
+
 		// 检查该币种是否已在持仓部分显示过完整市场数据
 		if displayedMarketDataSymbols[coin.Symbol] {
 			// 如果已显示过，只显示基本信息，不重复完整市场数据
@@ -694,7 +701,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		// 根据币种使用配置的杠杆上限
 		maxLeverage := altcoinLeverage          // 山寨币使用配置的杠杆
 		maxPositionValue := accountEquity * 1.5 // 山寨币最多1.5倍账户净值
-		
+
 		// 优先检查是否有特定交易对的杠杆设置
 		if pairLeverage != nil {
 			if specificLeverage, exists := pairLeverage[d.Symbol]; exists {
@@ -702,7 +709,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 				log.Printf("💡 使用特定交易对杠杆配置: %s 设置为%d倍", d.Symbol, maxLeverage)
 			}
 		}
-		
+
 		// 如果没有特定交易对配置，则使用默认逻辑
 		if maxLeverage == altcoinLeverage { // 表示上面没有覆盖
 			if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
@@ -734,12 +741,12 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
 			return fmt.Errorf("止损和止盈必须大于0")
 		}
-		
+
 		// 验证信心度（必须≥75）
 		if d.Confidence < 75 {
 			return fmt.Errorf("开仓信心度必须≥75，当前: %d", d.Confidence)
 		}
-		
+
 		// 验证risk_usd字段
 		if d.RiskUSD <= 0 {
 			return fmt.Errorf("risk_usd必须大于0")
