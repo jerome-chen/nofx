@@ -934,7 +934,8 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	posKey := decision.Symbol + "_LONG"
 	trade, exists := at.openTrades[posKey]
 	if !exists {
-		return fmt.Errorf("❌ 未找到 %s 的未平仓记录", decision.Symbol)
+		log.Printf("⚠️ 警告: 未找到 %s 的未平仓记录，继续执行交易所操作", decision.Symbol)
+		return nil
 	}
 	
 	// 使用更明确的类型断言方式
@@ -1044,7 +1045,8 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	posKey := decision.Symbol + "_SHORT"
 	trade, exists := at.openTrades[posKey]
 	if !exists {
-		return fmt.Errorf("❌ 未找到 %s 的未平仓记录", decision.Symbol)
+		log.Printf("⚠️ 警告: 未找到 %s 的未平仓记录，继续执行交易所操作", decision.Symbol)
+		return nil
 	}
 	
 	// 使用更明确的类型断言方式
