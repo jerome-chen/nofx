@@ -695,7 +695,7 @@ func (t *AsterTrader) CloseLong(symbol string, quantity float64) (map[string]int
 		}
 
 		for _, pos := range positions {
-			if pos["symbol"] == symbol && pos["side"] == "long" {
+			if pos["symbol"] == symbol && strings.EqualFold(pos["side"].(string), "long") {
 				quantity = pos["positionAmt"].(float64)
 				break
 			}
@@ -777,7 +777,7 @@ func (t *AsterTrader) CloseShort(symbol string, quantity float64) (map[string]in
 		}
 
 		for _, pos := range positions {
-			if pos["symbol"] == symbol && pos["side"] == "short" {
+			if pos["symbol"] == symbol && strings.EqualFold(pos["side"].(string), "short") {
 				// Aster的GetPositions已经将空仓数量转换为正数，直接使用
 				quantity = pos["positionAmt"].(float64)
 				break
@@ -891,7 +891,7 @@ func (t *AsterTrader) GetMarketPrice(symbol string) (float64, error) {
 // SetStopLoss 设置止损
 func (t *AsterTrader) SetStopLoss(symbol string, positionSide string, quantity, stopPrice float64) error {
 	side := "SELL"
-	if positionSide == "SHORT" {
+	if strings.EqualFold(positionSide, "SHORT") {
 		side = "BUY"
 	}
 
@@ -932,7 +932,7 @@ func (t *AsterTrader) SetStopLoss(symbol string, positionSide string, quantity, 
 // SetTakeProfit 设置止盈
 func (t *AsterTrader) SetTakeProfit(symbol string, positionSide string, quantity, takeProfitPrice float64) error {
 	side := "SELL"
-	if positionSide == "SHORT" {
+	if strings.EqualFold(positionSide, "SHORT") {
 		side = "BUY"
 	}
 

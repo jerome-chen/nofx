@@ -492,7 +492,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 
 		// 计算盈亏百分比
 		pnlPct := 0.0
-		if side == "long" {
+		if strings.EqualFold(side, "long") {
 			pnlPct = ((markPrice - entryPrice) / entryPrice) * float64(leverage) * 100
 		} else {
 			pnlPct = ((entryPrice - markPrice) / entryPrice) * float64(leverage) * 100
@@ -617,13 +617,13 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 						recentTrade.Duration = durationStr
 						
 						// 计算盈亏百分比
-						if recentTrade.EntryPrice != 0 && math.Abs(marketData.CurrentPrice-recentTrade.EntryPrice) > 0.0001 {
-							if side == "LONG" {
-								recentTrade.PnLPct = ((marketData.CurrentPrice - recentTrade.EntryPrice) / recentTrade.EntryPrice) * 100
-							} else {
-								recentTrade.PnLPct = ((recentTrade.EntryPrice - marketData.CurrentPrice) / recentTrade.EntryPrice) * 100
-							}
-						} else {
+				if recentTrade.EntryPrice != 0 && math.Abs(marketData.CurrentPrice-recentTrade.EntryPrice) > 0.0001 {
+					if strings.EqualFold(side, "LONG") {
+						recentTrade.PnLPct = ((marketData.CurrentPrice - recentTrade.EntryPrice) / recentTrade.EntryPrice) * 100
+					} else {
+						recentTrade.PnLPct = ((recentTrade.EntryPrice - marketData.CurrentPrice) / recentTrade.EntryPrice) * 100
+					}
+				} else {
 							recentTrade.PnLPct = 0
 						}
 						
@@ -761,7 +761,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	positions, err := at.trader.GetPositions()
 	if err == nil {
 		for _, pos := range positions {
-			if pos["symbol"] == decision.Symbol && pos["side"] == "long" {
+			if pos["symbol"] == decision.Symbol && strings.EqualFold(pos["side"].(string), "long") {
 				return fmt.Errorf("❌ %s 已有多仓，拒绝开仓以防止仓位叠加超限。如需换仓，请先给出 close_long 决策", decision.Symbol)
 			}
 		}
@@ -814,7 +814,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	}
 
 	// 存储到未平仓交易map中
-	posKey := decision.Symbol + "_long"
+	posKey := decision.Symbol + "_LONG"
 	at.openTrades[posKey] = trade
 	
 	// 同时添加到recentTrades，这样可以立即保存
@@ -844,7 +844,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	positions, err := at.trader.GetPositions()
 	if err == nil {
 		for _, pos := range positions {
-			if pos["symbol"] == decision.Symbol && pos["side"] == "short" {
+			if pos["symbol"] == decision.Symbol && strings.EqualFold(pos["side"].(string), "short") {
 				return fmt.Errorf("❌ %s 已有空仓，拒绝开仓以防止仓位叠加超限。如需换仓，请先给出 close_short 决策", decision.Symbol)
 			}
 		}
@@ -897,7 +897,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	}
 
 	// 存储到未平仓交易map中
-	posKey := decision.Symbol + "_short"
+	posKey := decision.Symbol + "_SHORT"
 	at.openTrades[posKey] = trade
 	
 	// 同时添加到recentTrades，这样可以立即保存
@@ -935,49 +935,63 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	trade, exists := at.openTrades[posKey]
 	if !exists {
 		log.Printf("⚠️ 警告: 未找到 %s 的未平仓记录，继续执行交易所操作", decision.Symbol)
-		return nil
+		// 继续执行交易所平仓操作，不返回nil
 	}
 	
-	// 使用更明确的类型断言方式
-	type tradeWrapper struct {
-		RecentTrade *LocalRecentTrade
-		OpenTime    time.Time
-	}
-	tradeData, ok := trade.(tradeWrapper)
-	if !ok {
-		return fmt.Errorf("❌ 交易记录格式错误: %s", decision.Symbol)
-	}
-	recentTrade := tradeData.RecentTrade
-	openTime := tradeData.OpenTime
-	
-	// 计算持有时间
-	now := time.Now()
-	durationMs := now.UnixMilli() - openTime.UnixMilli()
-	durationMin := durationMs / (1000 * 60) // 转换为分钟
+	// 定义变量，稍后根据trade是否存在进行处理
+	var recentTrade *LocalRecentTrade
 	var durationStr string
-	if durationMin < 60 {
-		durationStr = fmt.Sprintf("%d分钟", durationMin)
+
+	if exists {
+		// 使用更明确的类型断言方式
+		type tradeWrapper struct {
+			RecentTrade *LocalRecentTrade
+			OpenTime    time.Time
+		}
+		tradeData, ok := trade.(tradeWrapper)
+		if !ok {
+			return fmt.Errorf("❌ 交易记录格式错误: %s", decision.Symbol)
+		}
+		recentTrade = tradeData.RecentTrade
+		openTime := tradeData.OpenTime
+		
+		// 计算持有时间
+		now := time.Now()
+		durationMs := now.UnixMilli() - openTime.UnixMilli()
+		durationMin := durationMs / (1000 * 60) // 转换为分钟
+		if durationMin < 60 {
+			durationStr = fmt.Sprintf("%d分钟", durationMin)
+		} else {
+			durationHour := durationMin / 60
+			durationMinRemainder := durationMin % 60
+			durationStr = fmt.Sprintf("%d小时%d分钟", durationHour, durationMinRemainder)
+		}
+		
+		// 如果没有入场价格，使用当前价格作为默认值
+		if recentTrade.EntryPrice == 0 {
+			recentTrade.EntryPrice = marketData.CurrentPrice
+			log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
+			// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
+			modifiedReason := decision.Reasoning
+			// 使用正则表达式移除任何格式的盈亏百分比信息
+			profitRegex := regexp.MustCompile(`[亏损盈利][+-]?\d+(\.\d+)?%`)
+			modifiedReason = profitRegex.ReplaceAllString(modifiedReason, "止损控制风险")
+			decision.Reasoning = modifiedReason
+		}
 	} else {
-		durationHour := durationMin / 60
-		durationMinRemainder := durationMin % 60
-		durationStr = fmt.Sprintf("%d小时%d分钟", durationHour, durationMinRemainder)
-	}
-	
-	// 即使无法获取持仓详情，也要创建交易记录
-	if durationStr == "" {
+		// 当没有交易记录时，创建一个新的交易记录
+		recentTrade = &LocalRecentTrade{
+			Symbol:     decision.Symbol,
+			Side:       "LONG",
+			EntryPrice: marketData.CurrentPrice,
+			Reason:     decision.Reasoning,
+		}
 		durationStr = "未知"
 	}
 	
-	// 如果没有入场价格，使用当前价格作为默认值
-	if recentTrade.EntryPrice == 0 {
-		recentTrade.EntryPrice = marketData.CurrentPrice
-		log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
-		// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
-		modifiedReason := decision.Reasoning
-		// 使用正则表达式移除任何格式的盈亏百分比信息
-		profitRegex := regexp.MustCompile(`[亏损盈利][+-]?\d+(\.\d+)?%`)
-		modifiedReason = profitRegex.ReplaceAllString(modifiedReason, "止损控制风险")
-		decision.Reasoning = modifiedReason
+	// 即使无法获取持仓详情，也要确保durationStr有值
+	if durationStr == "" {
+		durationStr = "未知"
 	}
 	
 	// 计算盈亏百分比将在平仓成功后更新
@@ -1046,49 +1060,63 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	trade, exists := at.openTrades[posKey]
 	if !exists {
 		log.Printf("⚠️ 警告: 未找到 %s 的未平仓记录，继续执行交易所操作", decision.Symbol)
-		return nil
+		// 继续执行交易所平仓操作，不返回nil
 	}
 	
-	// 使用更明确的类型断言方式
-	type tradeWrapper struct {
-		RecentTrade *LocalRecentTrade
-		OpenTime    time.Time
-	}
-	tradeData, ok := trade.(tradeWrapper)
-	if !ok {
-		return fmt.Errorf("❌ 交易记录格式错误: %s", decision.Symbol)
-	}
-	recentTrade := tradeData.RecentTrade
-	openTime := tradeData.OpenTime
-	
-	// 计算持有时间
-	now := time.Now()
-	durationMs := now.UnixMilli() - openTime.UnixMilli()
-	durationMin := durationMs / (1000 * 60) // 转换为分钟
+	// 定义变量，稍后根据trade是否存在进行处理
+	var recentTrade *LocalRecentTrade
 	var durationStr string
-	if durationMin < 60 {
-		durationStr = fmt.Sprintf("%d分钟", durationMin)
+
+	if exists {
+		// 使用更明确的类型断言方式
+		type tradeWrapper struct {
+			RecentTrade *LocalRecentTrade
+			OpenTime    time.Time
+		}
+		tradeData, ok := trade.(tradeWrapper)
+		if !ok {
+			return fmt.Errorf("❌ 交易记录格式错误: %s", decision.Symbol)
+		}
+		recentTrade = tradeData.RecentTrade
+		openTime := tradeData.OpenTime
+		
+		// 计算持有时间
+		now := time.Now()
+		durationMs := now.UnixMilli() - openTime.UnixMilli()
+		durationMin := durationMs / (1000 * 60) // 转换为分钟
+		if durationMin < 60 {
+			durationStr = fmt.Sprintf("%d分钟", durationMin)
+		} else {
+			durationHour := durationMin / 60
+			durationMinRemainder := durationMin % 60
+			durationStr = fmt.Sprintf("%d小时%d分钟", durationHour, durationMinRemainder)
+		}
+		
+		// 如果没有入场价格，使用当前价格作为默认值
+			if recentTrade.EntryPrice == 0 {
+				recentTrade.EntryPrice = marketData.CurrentPrice
+				log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
+				// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
+				modifiedReason := decision.Reasoning
+				// 使用正则表达式移除任何格式的盈亏百分比信息
+				profitRegex := regexp.MustCompile(`[亏损盈利][+-]?\d+(\.\d+)?%`)
+				modifiedReason = profitRegex.ReplaceAllString(modifiedReason, "止损控制风险")
+				decision.Reasoning = modifiedReason
+			}
 	} else {
-		durationHour := durationMin / 60
-		durationMinRemainder := durationMin % 60
-		durationStr = fmt.Sprintf("%d小时%d分钟", durationHour, durationMinRemainder)
-	}
-	
-	// 即使无法获取持仓详情，也要创建交易记录
-	if durationStr == "" {
+		// 当没有交易记录时，创建一个新的交易记录
+		recentTrade = &LocalRecentTrade{
+			Symbol:     decision.Symbol,
+			Side:       "SHORT",
+			EntryPrice: marketData.CurrentPrice,
+			Reason:     decision.Reasoning,
+		}
 		durationStr = "未知"
 	}
 	
-	// 如果没有入场价格，使用当前价格作为默认值
-	if recentTrade.EntryPrice == 0 {
-		recentTrade.EntryPrice = marketData.CurrentPrice
-		log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
-		// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
-		modifiedReason := decision.Reasoning
-		// 使用正则表达式移除任何格式的盈亏百分比信息
-		profitRegex := regexp.MustCompile(`[亏损盈利][+-]?\d+(\.\d+)?%`)
-		modifiedReason = profitRegex.ReplaceAllString(modifiedReason, "止损控制风险")
-		decision.Reasoning = modifiedReason
+	// 确保durationStr有值
+	if durationStr == "" {
+		durationStr = "未知"
 	}
 	
 	// 计算盈亏百分比将在平仓成功后更新
@@ -1356,7 +1384,7 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 		}
 
 		pnlPct := 0.0
-		if side == "long" {
+		if strings.EqualFold(side, "long") {
 			pnlPct = ((markPrice - entryPrice) / entryPrice) * float64(leverage) * 100
 		} else {
 			pnlPct = ((entryPrice - markPrice) / entryPrice) * float64(leverage) * 100

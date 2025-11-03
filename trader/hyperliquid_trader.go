@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sonirico/go-hyperliquid"
@@ -328,7 +329,7 @@ func (t *HyperliquidTrader) CloseLong(symbol string, quantity float64) (map[stri
 		}
 
 		for _, pos := range positions {
-			if pos["symbol"] == symbol && pos["side"] == "long" {
+			if pos["symbol"] == symbol && strings.EqualFold(pos["side"].(string), "long") {
 				quantity = pos["positionAmt"].(float64)
 				break
 			}
@@ -400,7 +401,7 @@ func (t *HyperliquidTrader) CloseShort(symbol string, quantity float64) (map[str
 		}
 
 		for _, pos := range positions {
-			if pos["symbol"] == symbol && pos["side"] == "short" {
+			if pos["symbol"] == symbol && strings.EqualFold(pos["side"].(string), "short") {
 				quantity = pos["positionAmt"].(float64)
 				break
 			}
@@ -512,7 +513,7 @@ func (t *HyperliquidTrader) GetMarketPrice(symbol string) (float64, error) {
 func (t *HyperliquidTrader) SetStopLoss(symbol string, positionSide string, quantity, stopPrice float64) error {
 	coin := convertSymbolToHyperliquid(symbol)
 
-	isBuy := positionSide == "SHORT" // 空仓止损=买入，多仓止损=卖出
+	isBuy := strings.EqualFold(positionSide, "SHORT") // 空仓止损=买入，多仓止损=卖出
 
 	// ⚠️ 关键：根据币种精度要求，四舍五入数量
 	roundedQuantity := t.roundToSzDecimals(coin, quantity)
@@ -549,7 +550,7 @@ func (t *HyperliquidTrader) SetStopLoss(symbol string, positionSide string, quan
 func (t *HyperliquidTrader) SetTakeProfit(symbol string, positionSide string, quantity, takeProfitPrice float64) error {
 	coin := convertSymbolToHyperliquid(symbol)
 
-	isBuy := positionSide == "SHORT" // 空仓止盈=买入，多仓止盈=卖出
+	isBuy := strings.EqualFold(positionSide, "SHORT") // 空仓止盈=买入，多仓止盈=卖出
 
 	// ⚠️ 关键：根据币种精度要求，四舍五入数量
 	roundedQuantity := t.roundToSzDecimals(coin, quantity)

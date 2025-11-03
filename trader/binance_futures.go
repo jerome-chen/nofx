@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -304,7 +305,7 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 		}
 
 		for _, pos := range positions {
-			if pos["symbol"] == symbol && pos["side"] == "long" {
+			if pos["symbol"] == symbol && strings.EqualFold(pos["side"].(string), "long") {
 				quantity = pos["positionAmt"].(float64)
 				break
 			}
@@ -358,7 +359,7 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 		}
 
 		for _, pos := range positions {
-			if pos["symbol"] == symbol && pos["side"] == "short" {
+			if pos["symbol"] == symbol && strings.EqualFold(pos["side"].(string), "short") {
 				quantity = -pos["positionAmt"].(float64) // 空仓数量是负的，取绝对值
 				break
 			}
@@ -448,7 +449,7 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 	var side futures.SideType
 	var posSide futures.PositionSideType
 
-	if positionSide == "LONG" {
+	if strings.EqualFold(positionSide, "LONG") {
 		side = futures.SideTypeSell
 		posSide = futures.PositionSideTypeLong
 	} else {
@@ -486,7 +487,7 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 	var side futures.SideType
 	var posSide futures.PositionSideType
 
-	if positionSide == "LONG" {
+	if strings.EqualFold(positionSide, "LONG") {
 		side = futures.SideTypeSell
 		posSide = futures.PositionSideTypeLong
 	} else {
