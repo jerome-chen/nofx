@@ -18,6 +18,18 @@ import (
 	"nofx/pool"
 )
 
+// LocalRecentTrade 本地交易记录结构（与decision.RecentTrade保持一致）
+type LocalRecentTrade struct {
+	Symbol     string  `json:"symbol"`
+	Side       string  `json:"side"`
+	EntryPrice float64 `json:"entry_price"`
+	ClosePrice float64 `json:"close_price"`
+	Duration   string  `json:"duration"`
+	PnLPct     float64 `json:"pn_l_pct"`
+	Reason     string  `json:"reason"`
+	CloseTime  int64   `json:"close_time,omitempty"` // 平仓时间戳（毫秒）
+}
+
 // AutoTraderConfig 自动交易配置（简化版 - AI全权决策）
 type AutoTraderConfig struct {
 	// Trader标识
@@ -71,18 +83,7 @@ type AutoTraderConfig struct {
 	StopTradingTime time.Duration // 触发风控后暂停时长
 }
 
-// 定义内部交易记录类型以避免导入问题
-type RecentTrade struct {
-	Symbol     string    `json:"symbol"`
-	Side       string    `json:"side"`
-	EntryPrice float64   `json:"entry_price"`
-	ClosePrice float64   `json:"close_price"`
-	Duration   string    `json:"duration"`
-	PnLPct     float64   `json:"pn_l_pct"`
-	Reason     string    `json:"reason"`
-	OpenTime   time.Time `json:"open_time"`
-	CloseTime  time.Time `json:"close_time"`
-}
+// 直接使用decision包中的RecentTrade类型，不再重复定义
 
 // AutoTrader 自动交易器
 type AutoTrader struct {
@@ -101,8 +102,8 @@ type AutoTrader struct {
 	isRunning             bool
 	startTime             time.Time        // 系统启动时间
 	callCount             int              // AI调用次数
-	openTrades            map[string]*RecentTrade // 当前未平仓交易 (symbol_side -> trade)
-	recentTrades          map[string]*RecentTrade // 每个交易对的最近交易记录 (symbol -> trade)
+	openTrades            map[string]interface{} // 当前未平仓交易 (symbol_side -> trade) - 使用interface{}以支持匿名结构体
+	recentTrades          map[string]*LocalRecentTrade // 每个交易对的最近交易记录 (symbol -> trade)
 }
 
 // NewAutoTrader 创建自动交易器
@@ -197,8 +198,8 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 		startTime:      time.Now(),
 		callCount:      0,
 		isRunning:      false,
-		openTrades:     make(map[string]*RecentTrade), // 初始化未平仓交易map (symbol_side -> trade)
-		recentTrades:   make(map[string]*RecentTrade), // 初始化最近交易记录map (symbol -> trade)
+		openTrades:     make(map[string]interface{}), // 初始化未平仓交易map (symbol_side -> trade)
+		recentTrades:   make(map[string]*LocalRecentTrade), // 初始化最近交易记录map (symbol -> trade)
 	}
 	
 	// 尝试加载保存的最近交易记录
@@ -511,7 +512,14 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		// 获取开仓理由（如果有未平仓交易记录）
 		openingReason := ""
 		if trade, exists := at.openTrades[posKey]; exists {
-			openingReason = trade.Reason
+			// 类型断言获取嵌入的RecentTrade
+	type tradeWrapper struct {
+		RecentTrade *LocalRecentTrade
+		OpenTime    time.Time
+	}
+	if tradeData, ok := trade.(tradeWrapper); ok && tradeData.RecentTrade != nil {
+				openingReason = tradeData.RecentTrade.Reason
+			}
 		}
 
 		// 确保使用正确的updateTime值
@@ -607,16 +615,17 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		Performance:    performance, // 添加历史表现分析
 	}
 
-	// 复制最近交易记录，从本地类型转换为decision包中的类型
-	for symbol, trade := range at.recentTrades {
+	// 将本地交易记录转换为decision包的格式
+	for symbol, localTrade := range at.recentTrades {
 		ctx.RecentTrades[symbol] = &decision.RecentTrade{
-			Symbol:     trade.Symbol,
-			Side:       trade.Side,
-			EntryPrice: trade.EntryPrice,
-			ClosePrice: trade.ClosePrice,
-			Duration:   trade.Duration,
-			PnLPct:     trade.PnLPct,
-			Reason:     trade.Reason,
+			Symbol:     localTrade.Symbol,
+			Side:       localTrade.Side,
+			EntryPrice: localTrade.EntryPrice,
+			ClosePrice: localTrade.ClosePrice,
+			Duration:   localTrade.Duration,
+			PnLPct:     localTrade.PnLPct,
+			Reason:     localTrade.Reason,
+			CloseTime:  localTrade.CloseTime,
 		}
 	}
 	
@@ -684,19 +693,37 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 
 	// 创建并记录交易记录
 	now := time.Now()
-	trade := &RecentTrade{
+	// 创建交易记录
+	tradeRecord := &LocalRecentTrade{
 		Symbol:     decision.Symbol,
 		Side:       "LONG",
 		EntryPrice: marketData.CurrentPrice,
 		ClosePrice: 0, // 未平仓，设置为0
 		Reason:     decision.Reasoning,
-		OpenTime:   now,
-		CloseTime:  now, // 临时值，平仓时更新
+		CloseTime:  now.UnixMilli(), // 临时值，平仓时更新
+	}
+	
+	// 为内部使用添加OpenTime字段
+	type tradeWrapper struct {
+		RecentTrade *LocalRecentTrade
+		OpenTime    time.Time
+	}
+	trade := tradeWrapper{
+		RecentTrade: tradeRecord,
+		OpenTime:    now,
 	}
 
 	// 存储到未平仓交易map中
 	posKey := decision.Symbol + "_long"
 	at.openTrades[posKey] = trade
+	
+	// 同时添加到recentTrades，这样可以立即保存
+	at.recentTrades[decision.Symbol] = tradeRecord
+	
+	// 保存交易记录到文件
+	if err := at.saveRecentTrades(); err != nil {
+		log.Printf("  ⚠ 保存交易记录失败: %v", err)
+	}
 
 	// 设置止损止盈
 	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
@@ -749,19 +776,37 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 
 	// 创建并记录交易记录
 	now := time.Now()
-	trade := &RecentTrade{
+	// 创建交易记录
+	tradeRecord := &LocalRecentTrade{
 		Symbol:     decision.Symbol,
 		Side:       "SHORT",
 		EntryPrice: marketData.CurrentPrice,
 		ClosePrice: 0, // 未平仓，设置为0
 		Reason:     decision.Reasoning,
-		OpenTime:   now,
-		CloseTime:  now, // 临时值，平仓时更新
+		CloseTime:  now.UnixMilli(), // 临时值，平仓时更新
+	}
+	
+	// 为内部使用添加OpenTime字段
+	type tradeWrapper struct {
+		RecentTrade *LocalRecentTrade
+		OpenTime    time.Time
+	}
+	trade := tradeWrapper{
+		RecentTrade: tradeRecord,
+		OpenTime:    now,
 	}
 
 	// 存储到未平仓交易map中
 	posKey := decision.Symbol + "_short"
 	at.openTrades[posKey] = trade
+	
+	// 同时添加到recentTrades，这样可以立即保存
+	at.recentTrades[decision.Symbol] = tradeRecord
+	
+	// 保存交易记录到文件
+	if err := at.saveRecentTrades(); err != nil {
+		log.Printf("  ⚠ 保存交易记录失败: %v", err)
+	}
 
 	// 设置止损止盈
 	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
@@ -792,9 +837,21 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 		return fmt.Errorf("❌ 未找到 %s 的未平仓记录", decision.Symbol)
 	}
 	
+	// 使用更明确的类型断言方式
+	type tradeWrapper struct {
+		RecentTrade *LocalRecentTrade
+		OpenTime    time.Time
+	}
+	tradeData, ok := trade.(tradeWrapper)
+	if !ok {
+		return fmt.Errorf("❌ 交易记录格式错误: %s", decision.Symbol)
+	}
+	recentTrade := tradeData.RecentTrade
+	openTime := tradeData.OpenTime
+	
 	// 计算持有时间
 	now := time.Now()
-	durationMs := now.UnixMilli() - trade.OpenTime.UnixMilli()
+	durationMs := now.UnixMilli() - openTime.UnixMilli()
 	durationMin := durationMs / (1000 * 60) // 转换为分钟
 	var durationStr string
 	if durationMin < 60 {
@@ -811,8 +868,8 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	}
 	
 	// 如果没有入场价格，使用当前价格作为默认值
-	if trade.EntryPrice == 0 {
-		trade.EntryPrice = marketData.CurrentPrice
+	if recentTrade.EntryPrice == 0 {
+		recentTrade.EntryPrice = marketData.CurrentPrice
 		log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
 		// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
 		modifiedReason := decision.Reasoning
@@ -845,21 +902,16 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 		actualClosePrice = avgPrice
 	}
 
-	// 更新交易记录
-	trade.ClosePrice = actualClosePrice
-	trade.Duration = durationStr
-	trade.CloseTime = time.Now()
-	trade.Reason = decision.Reasoning
+	// 移除对原始trade变量的直接访问
 
 	// 计算盈亏百分比
-	if trade.EntryPrice != 0 && math.Abs(actualClosePrice-trade.EntryPrice) > 0.0001 {
-		trade.PnLPct = ((actualClosePrice - trade.EntryPrice) / trade.EntryPrice) * 100
+	if recentTrade.EntryPrice != 0 && math.Abs(actualClosePrice-recentTrade.EntryPrice) > 0.0001 {
+		recentTrade.PnLPct = ((actualClosePrice - recentTrade.EntryPrice) / recentTrade.EntryPrice) * 100
 	} else {
-		trade.PnLPct = 0
+		recentTrade.PnLPct = 0
 	}
 
-	// 将交易记录移到recentTrades中，并从openTrades中移除
-	at.recentTrades[decision.Symbol] = trade
+	// 移除重复的字段更新代码（已在前面更新过）
 
 	// 保存交易记录到文件
 	if err := at.saveRecentTrades(); err != nil {
@@ -867,7 +919,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	}
 
 	log.Printf("  ✅ 已更新交易记录: %s LONG | 入场%.4f | 出场%.4f | 盈亏%+.2f%%", 
-		decision.Symbol, trade.EntryPrice, actualClosePrice, trade.PnLPct)
+		decision.Symbol, recentTrade.EntryPrice, actualClosePrice, recentTrade.PnLPct)
 	
 
 	// 清理已平仓的记录
@@ -895,9 +947,21 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 		return fmt.Errorf("❌ 未找到 %s 的未平仓记录", decision.Symbol)
 	}
 	
+	// 使用更明确的类型断言方式
+	type tradeWrapper struct {
+		RecentTrade *LocalRecentTrade
+		OpenTime    time.Time
+	}
+	tradeData, ok := trade.(tradeWrapper)
+	if !ok {
+		return fmt.Errorf("❌ 交易记录格式错误: %s", decision.Symbol)
+	}
+	recentTrade := tradeData.RecentTrade
+	openTime := tradeData.OpenTime
+	
 	// 计算持有时间
 	now := time.Now()
-	durationMs := now.UnixMilli() - trade.OpenTime.UnixMilli()
+	durationMs := now.UnixMilli() - openTime.UnixMilli()
 	durationMin := durationMs / (1000 * 60) // 转换为分钟
 	var durationStr string
 	if durationMin < 60 {
@@ -914,8 +978,8 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	}
 	
 	// 如果没有入场价格，使用当前价格作为默认值
-	if trade.EntryPrice == 0 {
-		trade.EntryPrice = marketData.CurrentPrice
+	if recentTrade.EntryPrice == 0 {
+		recentTrade.EntryPrice = marketData.CurrentPrice
 		log.Printf("  ⚠ 无法获取%s的入场价格，使用当前价格作为默认值", decision.Symbol)
 		// 当使用默认价格时，修改Reason以避免显示不一致的盈亏信息
 		modifiedReason := decision.Reasoning
@@ -948,21 +1012,20 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 		actualClosePrice = avgPrice
 	}
 
-	// 更新交易记录
-	trade.ClosePrice = actualClosePrice
-	trade.Duration = durationStr
-	trade.CloseTime = time.Now()
-	trade.Reason = decision.Reasoning
+	// 移除对原始trade变量的直接访问
 
 	// 计算盈亏百分比
-	if trade.EntryPrice != 0 && math.Abs(actualClosePrice-trade.EntryPrice) > 0.0001 {
-		trade.PnLPct = ((trade.EntryPrice - actualClosePrice) / trade.EntryPrice) * 100
+	if recentTrade.EntryPrice != 0 && math.Abs(actualClosePrice-recentTrade.EntryPrice) > 0.0001 {
+		recentTrade.PnLPct = ((recentTrade.EntryPrice - actualClosePrice) / recentTrade.EntryPrice) * 100
 	} else {
-		trade.PnLPct = 0
+		recentTrade.PnLPct = 0
 	}
 
-	// 将交易记录移到recentTrades中，并从openTrades中移除
-	at.recentTrades[decision.Symbol] = trade
+	// 更新交易记录
+	recentTrade.CloseTime = time.Now().UnixMilli()
+	recentTrade.ClosePrice = actualClosePrice
+	recentTrade.Reason = decision.Reasoning
+	recentTrade.Duration = durationStr
 
 	// 保存交易记录到文件
 	if err := at.saveRecentTrades(); err != nil {
@@ -970,7 +1033,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	}
 
 	log.Printf("  ✅ 已更新交易记录: %s SHORT | 入场%.4f | 出场%.4f | 盈亏%+.2f%%", 
-		decision.Symbol, trade.EntryPrice, actualClosePrice, trade.PnLPct)
+		decision.Symbol, recentTrade.EntryPrice, actualClosePrice, recentTrade.PnLPct)
 	
 
 	// 清理已平仓的记录
@@ -1000,16 +1063,16 @@ func (at *AutoTrader) GetDecisionLogger() *logger.DecisionLogger {
 	return at.decisionLogger
 }
 
-// saveRecentTrades 保存最近交易记录到文件
+// saveRecentTrades 保存交易记录到文件
 func (at *AutoTrader) saveRecentTrades() error {
 	// 确保目录存在
-	dir := fmt.Sprintf("data/%s", at.id)
+	dir := "data"
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("创建数据目录失败: %w", err)
 	}
 	
 	// 保存到文件
-	filePath := fmt.Sprintf("%s/recent_trades.json", dir)
+	filePath := fmt.Sprintf("%s/recent-trades.json", dir)
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("创建文件失败: %w", err)
@@ -1023,7 +1086,7 @@ func (at *AutoTrader) saveRecentTrades() error {
 		return fmt.Errorf("序列化交易记录失败: %w", err)
 	}
 	
-	log.Printf("  ✅ 已保存 %d 条最近交易记录到 %s", len(at.recentTrades), filePath)
+	log.Printf("  ✅ 已保存 %d 条交易记录到 %s", len(at.recentTrades), filePath)
 	return nil
 }
 
