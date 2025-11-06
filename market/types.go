@@ -8,9 +8,15 @@ type Data struct {
 	CurrentPrice      float64
 	PriceChange1h     float64 // 1小时价格变化百分比
 	PriceChange4h     float64 // 4小时价格变化百分比
-	CurrentEMA20      float64
-	CurrentMACD       float64
-	CurrentRSI7       float64
+	CurrentEMA20      float64   // 3分钟周期EMA20
+	CurrentMACD       float64   // 3分钟周期MACD
+	CurrentRSI7       float64   // 3分钟周期RSI7
+	CurrentEMA20_15m  float64   // 15分钟周期EMA20
+	CurrentMACD_15m   float64   // 15分钟周期MACD
+	CurrentRSI7_15m   float64   // 15分钟周期RSI7
+	CurrentEMA20_1h   float64   // 1小时周期EMA20
+	CurrentMACD_1h    float64   // 1小时周期MACD
+	CurrentRSI7_1h    float64   // 1小时周期RSI7
 	OpenInterest      *OIData
 	FundingRate       float64
 	IntradaySeries    *IntradayData

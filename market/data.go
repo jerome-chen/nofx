@@ -12,7 +12,7 @@ import (
 
 // Get 获取指定代币的市场数据
 func Get(symbol string) (*Data, error) {
-	var klines3m, klines4h []Kline
+	var klines3m, klines15m, klines1h, klines4h []Kline
 	var err error
 	// 标准化symbol
 	symbol = Normalize(symbol)
@@ -20,6 +20,18 @@ func Get(symbol string) (*Data, error) {
 	klines3m, err = WSMonitorCli.GetCurrentKlines(symbol, "3m") // 多获取一些用于计算
 	if err != nil {
 		return nil, fmt.Errorf("获取3分钟K线失败: %v", err)
+	}
+
+	// 获取15分钟K线数据
+	klines15m, err = WSMonitorCli.GetCurrentKlines(symbol, "15m")
+	if err != nil {
+		return nil, fmt.Errorf("获取15分钟K线失败: %v", err)
+	}
+
+	// 获取1小时K线数据
+	klines1h, err = WSMonitorCli.GetCurrentKlines(symbol, "1h")
+	if err != nil {
+		return nil, fmt.Errorf("获取1小时K线失败: %v", err)
 	}
 
 	// 获取4小时K线数据 (最近10个)
@@ -35,9 +47,14 @@ func Get(symbol string) (*Data, error) {
 	currentRSI7 := calculateRSI(klines3m, 7)
 
 	// 计算价格变化百分比
-	// 1小时价格变化 = 20个3分钟K线前的价格
+	// 1小时价格变化 - 优先使用1小时K线数据
 	priceChange1h := 0.0
-	if len(klines3m) >= 21 { // 至少需要21根K线 (当前 + 20根前)
+	if len(klines1h) >= 2 {
+		price1hAgo := klines1h[len(klines1h)-2].Close
+		if price1hAgo > 0 {
+			priceChange1h = ((currentPrice - price1hAgo) / price1hAgo) * 100
+		}
+	} else if len(klines3m) >= 21 { // 备用：使用3分钟K线数据
 		price1hAgo := klines3m[len(klines3m)-21].Close
 		if price1hAgo > 0 {
 			priceChange1h = ((currentPrice - price1hAgo) / price1hAgo) * 100
@@ -69,6 +86,14 @@ func Get(symbol string) (*Data, error) {
 	// 计算长期数据
 	longerTermData := calculateLongerTermData(klines4h)
 
+	// 计算15分钟和1小时周期的指标
+	currentEMA20_15m := calculateEMA(klines15m, 20)
+	currentMACD_15m := calculateMACD(klines15m)
+	currentRSI7_15m := calculateRSI(klines15m, 7)
+	currentEMA20_1h := calculateEMA(klines1h, 20)
+	currentMACD_1h := calculateMACD(klines1h)
+	currentRSI7_1h := calculateRSI(klines1h, 7)
+
 	return &Data{
 		Symbol:            symbol,
 		CurrentPrice:      currentPrice,
@@ -77,6 +102,12 @@ func Get(symbol string) (*Data, error) {
 		CurrentEMA20:      currentEMA20,
 		CurrentMACD:       currentMACD,
 		CurrentRSI7:       currentRSI7,
+		CurrentEMA20_15m:  currentEMA20_15m,
+		CurrentMACD_15m:   currentMACD_15m,
+		CurrentRSI7_15m:   currentRSI7_15m,
+		CurrentEMA20_1h:   currentEMA20_1h,
+		CurrentMACD_1h:    currentMACD_1h,
+		CurrentRSI7_1h:    currentRSI7_1h,
 		OpenInterest:      oiData,
 		FundingRate:       fundingRate,
 		IntradaySeries:    intradayData,
@@ -359,8 +390,20 @@ func getFundingRate(symbol string) (float64, error) {
 func Format(data *Data) string {
 	var sb strings.Builder
 
+	// 3分钟周期指标
+	sb.WriteString("=== 3m indicators ===\n")
 	sb.WriteString(fmt.Sprintf("current_price = %.2f, current_ema20 = %.3f, current_macd = %.3f, current_rsi (7 period) = %.3f\n\n",
 		data.CurrentPrice, data.CurrentEMA20, data.CurrentMACD, data.CurrentRSI7))
+
+	// 15分钟周期指标
+	sb.WriteString("=== 15m indicators ===\n")
+	sb.WriteString(fmt.Sprintf("ema20_15m = %.3f, macd_15m = %.3f, rsi_15m (7 period) = %.3f\n\n",
+		data.CurrentEMA20_15m, data.CurrentMACD_15m, data.CurrentRSI7_15m))
+
+	// 1小时周期指标
+	sb.WriteString("=== 1h indicators ===\n")
+	sb.WriteString(fmt.Sprintf("ema20_1h = %.3f, macd_1h = %.3f, rsi_1h (7 period) = %.3f\n\n",
+		data.CurrentEMA20_1h, data.CurrentMACD_1h, data.CurrentRSI7_1h))
 
 	sb.WriteString(fmt.Sprintf("In addition, here is the latest %s open interest and funding rate for perps:\n\n",
 		data.Symbol))
