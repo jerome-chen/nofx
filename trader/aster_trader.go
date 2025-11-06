@@ -444,9 +444,10 @@ func (t *AsterTrader) GetBalance() (map[string]interface{}, error) {
 	crossUnPnl := 0.0
 
 	for _, bal := range balances {
-		if asset, ok := bal["asset"].(string); ok && asset == "USDT" {
+		if asset, ok := bal["asset"].(string); ok && (asset == "USDT" || asset == "USDF") {
 			if wb, ok := bal["balance"].(string); ok {
-				totalBalance, _ = strconv.ParseFloat(wb, 64)
+				val, _ := strconv.ParseFloat(wb, 64)
+				totalBalance += val
 			}
 			if avail, ok := bal["availableBalance"].(string); ok {
 				availableBalance, _ = strconv.ParseFloat(avail, 64)
