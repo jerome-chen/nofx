@@ -316,13 +316,29 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 
 	// 4. 收集结果
 	oiMap := make(map[string]float64)
+	errorCount := 0
 	for result := range resultChan {
 		if result.err != nil {
-			fmt.Printf("Error fetching open interest for %s: %v\n", result.symbol, result.err)
+			// 检查是否是币种不可用的错误
+			if strings.Contains(result.err.Error(), "is not available for trading") {
+				// 对于已下架或结算中的币种，完全静默处理
+				continue
+			}
+			// 只记录有限数量的其他错误，避免日志过于冗长
+			if errorCount < 5 {
+				fmt.Printf("Error fetching open interest for %s: %v\n", result.symbol, result.err)
+			}
+			errorCount++
 		} else if result.openInterest > 0 {
 			oiMap[result.symbol] = result.openInterest
-			fmt.Printf("Debug: Got open interest for %s: %.2f\n", result.symbol, result.openInterest)
+			// 减少调试日志输出
+			// fmt.Printf("Debug: Got open interest for %s: %.2f\n", result.symbol, result.openInterest)
 		}
+	}
+	
+	// 如果有超过5个错误，打印一个汇总信息
+	if errorCount > 5 {
+		fmt.Printf("... and %d more errors (suppressed)\n", errorCount-5)
 	}
 
 	// 5. 转换为OITopItem并按持仓量排序
@@ -449,7 +465,7 @@ func (s *CoinPoolService) fetchBinanceFuturesTickers() ([]BinanceFuturesTicker, 
 		
 		resp, err := client.Do(req)
 		if err != nil {
-			lastErr = err
+			// 继续尝试，不设置错误变量
 			continue
 		}
 		
@@ -458,18 +474,18 @@ func (s *CoinPoolService) fetchBinanceFuturesTickers() ([]BinanceFuturesTicker, 
 		if resp.StatusCode == http.StatusOK {
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				lastErr = err
+				// 继续尝试
 				continue
 			}
 			
 			var tickers []BinanceFuturesTicker
 			err = json.Unmarshal(body, &tickers)
-			if err != nil {
-				lastErr = fmt.Errorf("failed to unmarshal response: %v", err)
-				continue
-			}
-			
-			// 注意：根据用户反馈和实际测试，ticker数据中通常不包含有效的持仓量信息
+				if err != nil {
+					// 继续尝试
+					continue
+				}
+				
+				// 注意：根据用户反馈和实际测试，ticker数据中通常不包含有效的持仓量信息
 			// 但我们仍然尝试提取，以备API在未来返回这些数据
 			s.openInterestMutex.Lock()
 			hasOIData := false
@@ -511,14 +527,13 @@ func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, erro
 		if oi, exists := s.openInterestCache[symbol]; exists {
 			s.openInterestMutex.RUnlock()
 			// 不打印每条缓存命中的日志，减少日志噪声
-			// fmt.Printf("Debug: Using cached open interest for %s: %.2f\n", symbol, oi)
 			return oi, nil
 		}
 	}
 	s.openInterestMutex.RUnlock()
 
 	// 缓存无效或不存在，从API获取
-	fmt.Printf("Debug: Fetching open interest from API for %s\n", symbol)
+	// fmt.Printf("Debug: Fetching open interest from API for %s\n", symbol)
 	
 	// 使用Binance专门的持仓量API端点
 	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/openInterest?symbol=%s", symbol)
@@ -537,7 +552,6 @@ func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, erro
 
 	// 重试机制
 	maxRetries := 2
-	var lastErr error
 	
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
@@ -547,32 +561,25 @@ func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, erro
 		
 		resp, err := client.Do(req)
 		if err != nil {
-			lastErr = err
-			continue
-		}
+		continue
+	}
 		
-		defer resp.Body.Close()
+		// 读取响应体
+		errorBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close() // 立即关闭，避免defer导致的资源泄漏
 		
 		if resp.StatusCode == http.StatusOK {
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				lastErr = err
-				continue
-			}
-			
 			var oiResp BinanceOpenInterestResponse
-			err = json.Unmarshal(body, &oiResp)
+			err = json.Unmarshal(errorBody, &oiResp)
 			if err != nil {
-				lastErr = fmt.Errorf("failed to unmarshal response: %v", err)
-				continue
-			}
+		continue
+	}
 			
 			// 解析持仓量
 			var openInterest float64
 			if _, err := fmt.Sscanf(oiResp.OpenInterest, "%f", &openInterest); err != nil {
-				lastErr = fmt.Errorf("failed to parse open interest value: %v", err)
-				continue
-			}
+		continue
+	}
 			
 			// 持仓量API返回的是合约数量，需要转换为价值
 			// 首先获取当前价格
@@ -582,9 +589,9 @@ func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, erro
 			
 			priceResp, priceErr := client.Do(priceReq)
 			if priceErr != nil {
-				// 价格获取失败时，尝试使用当前的持仓量
-				lastErr = priceErr
-				fmt.Printf("Warning: Failed to get price for %s, using open interest count: %v\n", symbol, priceErr)
+		// 价格获取失败时，尝试使用当前的持仓量
+		// 只在调试模式下打印警告
+		// fmt.Printf("Warning: Failed to get price for %s, using open interest count: %v\n", symbol, priceErr)
 				
 				// 更新缓存
 				s.openInterestMutex.Lock()
@@ -630,17 +637,25 @@ func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, erro
 				s.openInterestCache[symbol] = openInterestValue
 				s.openInterestMutex.Unlock()
 				
-				fmt.Printf("Debug: Got open interest for %s: %.2f\n", symbol, openInterestValue)
+				// fmt.Printf("Debug: Got open interest for %s: %.2f\n", symbol, openInterestValue)
 				return openInterestValue, nil
 			}
+		} else if resp.StatusCode == http.StatusBadRequest {
+			// 特殊处理400错误，检查是否是币种已下架或结算中的情况
+			errorStr := string(errorBody)
+			if strings.Contains(errorStr, "delivering or delivered or settling or closed or pre-trading") {
+				// 这是预期的错误，币种可能已下架或处于特殊状态
+				// 不返回错误，而是返回0并跳过这个币种
+				return 0, fmt.Errorf("symbol %s is not available for trading", symbol)
+			}
+			// 记录错误但继续尝试
+		} else {
+			// 记录错误但继续尝试
 		}
-		
-		// 读取错误响应体以便调试
-		errorBody, _ := io.ReadAll(resp.Body)
-		lastErr = fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, string(errorBody))
 	}
 	
-	return 0, lastErr
+	// 减少错误日志的详细程度，避免日志过于冗长
+	return 0, fmt.Errorf("failed to fetch open interest for %s", symbol)
 }
 
 // loadCoinNamesCache 从CoinGecko API加载币种名称缓存
@@ -655,7 +670,7 @@ func (s *CoinPoolService) loadCoinNamesCache() error {
 
 	// 创建HTTP客户端并设置超时
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: 15 * time.Second, // 增加超时时间
 	}
 
 	// 创建请求并添加User-Agent头
@@ -665,43 +680,47 @@ func (s *CoinPoolService) loadCoinNamesCache() error {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
+	// 添加重试机制
+	maxRetries := 3
+	var lastErr error
+	var body []byte
+	var resp *http.Response
+	
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// 指数退避
+			sleepTime := time.Duration(attempt*1000) * time.Millisecond
+			fmt.Printf("Retrying CoinGecko API request after %v...\n", sleepTime)
+			time.Sleep(sleepTime)
+		}
+		
+		resp, err = client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		
+		body, err = io.ReadAll(resp.Body)
+		resp.Body.Close() // 立即关闭，避免defer导致的资源泄漏
+		
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+			continue
+		}
+		
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		
+		break // 成功获取响应
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	// 解析CoinGecko响应
-	type coinInfo struct {
-		ID     string `json:"id"`
-		Symbol string `json:"symbol"`
-		Name   string `json:"name"`
-	}
-
-	var coins []coinInfo
-	err = json.Unmarshal(body, &coins)
-	if err != nil {
-		return err
-	}
-
-	// 更新缓存
+	
+	// 即使API调用失败，我们仍然可以使用预定义的币种名称
 	s.cacheMutex.Lock()
 	defer s.cacheMutex.Unlock()
-
-	// 清空旧缓存并添加新数据
-	// 注意：CoinGecko返回的symbol通常是小写，我们需要匹配Binance的大写符号
-	s.coinCache = make(map[string]string)
 	
-	// 直接设置主流币种的官方名称
+	// 直接设置主流币种的官方名称（无论API调用是否成功）
 	// 这种方法最可靠，确保主流币种始终显示其标准名称
 	s.coinCache = map[string]string{
 		"BTC":  "Bitcoin",
@@ -728,21 +747,34 @@ func (s *CoinPoolService) loadCoinNamesCache() error {
 		"FIL": "Filecoin",
 	}
 	
-	// 然后加载CoinGecko的数据，但跳过已经设置的主流币种
-	for _, coin := range coins {
-		symbol := strings.ToUpper(coin.Symbol)
-		// 只有当该符号不在已设置的主流币种中时才添加
-		if _, exists := s.coinCache[symbol]; !exists {
-			s.coinCache[symbol] = coin.Name
+	// 只有在API调用成功时才尝试解析和加载额外的币种名称
+	if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
+		// 解析CoinGecko响应
+		type coinInfo struct {
+			ID     string `json:"id"`
+			Symbol string `json:"symbol"`
+			Name   string `json:"name"`
+		}
+
+		var coins []coinInfo
+		if err := json.Unmarshal(body, &coins); err == nil {
+			// 加载CoinGecko的数据，但跳过已经设置的主流币种
+			for _, coin := range coins {
+				symbol := strings.ToUpper(coin.Symbol)
+				// 只有当该符号不在已设置的主流币种中时才添加
+				if _, exists := s.coinCache[symbol]; !exists {
+					s.coinCache[symbol] = coin.Name
+				}
+			}
 		}
 	}
 
-	// 设置缓存过期时间（1小时）
+	// 无论API调用是否成功，都更新缓存过期时间
 	s.cacheExpiry = time.Now().Add(time.Hour)
+	fmt.Printf("Successfully loaded %d coin names (API status: %v)\n", len(s.coinCache), lastErr == nil)
 
-	fmt.Printf("Successfully loaded %d coin names from CoinGecko\n", len(s.coinCache))
-
-	return nil
+	// 如果API调用失败，返回错误但仍然使用预定义的币种名称
+	return lastErr
 }
 
 // getCoinNameBySymbol 根据币种符号获取币种名称
