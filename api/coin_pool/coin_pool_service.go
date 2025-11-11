@@ -7,36 +7,33 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-
-
 // CoinPoolService 提供coin_pool相关的数据服务
 type CoinPoolService struct {
-	binanceAPIURL       string
-	coingeckoAPIURL     string
-	coinCache           map[string]string
-	cacheMutex          sync.RWMutex
-	cacheExpiry         time.Time
+	binanceAPIURL   string
+	coingeckoAPIURL string
+	coinCache       map[string]string
+	cacheMutex      sync.RWMutex
+	cacheExpiry     time.Time
 	// OI数据缓存
-	openInterestCache   map[string]float64
-	openInterestMutex   sync.RWMutex
-	openInterestExpiry  time.Time
+	openInterestCache  map[string]float64
+	openInterestMutex  sync.RWMutex
+	openInterestExpiry time.Time
 }
 
 // NewCoinPoolService 创建新的CoinPoolService实例
 func NewCoinPoolService() *CoinPoolService {
 	return &CoinPoolService{
-		binanceAPIURL:       "https://api.binance.com",
-		coingeckoAPIURL:     "https://api.coingecko.com",
-		coinCache:           make(map[string]string),
-		cacheExpiry:         time.Now().Add(-time.Hour), // 初始设置为已过期，确保第一次调用会加载缓存
-		openInterestCache:   make(map[string]float64),
-		openInterestExpiry:  time.Now().Add(-time.Minute), // 初始设置为已过期，确保第一次调用会加载缓存
+		binanceAPIURL:      "https://api.binance.com",
+		coingeckoAPIURL:    "https://api.coingecko.com",
+		coinCache:          make(map[string]string),
+		cacheExpiry:        time.Now().Add(-time.Hour), // 初始设置为已过期，确保第一次调用会加载缓存
+		openInterestCache:  make(map[string]float64),
+		openInterestExpiry: time.Now().Add(-time.Minute), // 初始设置为已过期，确保第一次调用会加载缓存
 	}
 }
 
@@ -126,9 +123,9 @@ type BinanceFuturesTicker struct {
 
 // BinanceOpenInterestResponse 定义Binance持仓量API响应结构
 type BinanceOpenInterestResponse struct {
-	Symbol        string `json:"symbol"`
-	OpenInterest  string `json:"openInterest"`
-	Time          int64  `json:"time"`
+	Symbol       string `json:"symbol"`
+	OpenInterest string `json:"openInterest"`
+	Time         int64  `json:"time"`
 }
 
 // GetAI500CoinPool 从上游数据源获取AI500币池数据
@@ -194,13 +191,13 @@ func (s *CoinPoolService) GetAI500CoinPool() ([]CoinPoolItem, error) {
 		}
 
 		coinList = append(coinList, CoinPoolItem{
-			CoinName:   coinName,
-			Symbol:     symbol,
-			Price:      price,
-			ChangeRate: changeRate,
-			Volume:     volume, // 保留原始交易量字段
+			CoinName:    coinName,
+			Symbol:      symbol,
+			Price:       price,
+			ChangeRate:  changeRate,
+			Volume:      volume,      // 保留原始交易量字段
 			QuoteVolume: quoteVolume, // 添加美元计价交易量
-			Rank:       i + 1,
+			Rank:        i + 1,
 		})
 	}
 
@@ -241,7 +238,7 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 		// 只处理主流币种的USDT永续合约（不包含杠杆和期权合约）
 		if strings.HasSuffix(ticker.Symbol, "USDT") && !strings.Contains(ticker.Symbol, "_") && len(ticker.Symbol) > 4 {
 			usdtSymbols = append(usdtSymbols, ticker.Symbol)
-			
+
 			// 解析价格和涨跌幅并存储
 			var price, changeRate float64
 			if _, err := fmt.Sscanf(ticker.LastPrice, "%f", &price); err == nil {
@@ -258,23 +255,23 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 	// 3. 并发获取每个交易对的持仓量数据
 	// 使用goroutine池控制并发数量，避免超出API限制
 	type oiResult struct {
-		symbol     string
+		symbol       string
 		openInterest float64
-		err        error
+		err          error
 	}
 
 	resultChan := make(chan oiResult, len(usdtSymbols))
 	var wg sync.WaitGroup
-	
+
 	// 检查OITop数据缓存是否有效
 	type cachedOITopResult struct {
-		Items []OITopItem
+		Items  []OITopItem
 		Expiry time.Time
 	}
-	
+
 	var cachedResult cachedOITopResult
 	var cacheFile = "/tmp/oi_top_cache.json"
-	
+
 	// 尝试加载缓存文件
 	if data, err := os.ReadFile(cacheFile); err == nil {
 		if err := json.Unmarshal(data, &cachedResult); err == nil {
@@ -294,15 +291,15 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 		wg.Add(1)
 		go func(sym string) {
 			defer wg.Done()
-			
+
 			// 获取信号量
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			
+
 			// 获取持仓量数据
 			openInterest, err := s.fetchBinanceOpenInterest(sym)
 			resultChan <- oiResult{symbol: sym, openInterest: openInterest, err: err}
-			
+
 			// 避免API请求过于频繁
 			time.Sleep(100 * time.Millisecond)
 		}(symbol)
@@ -335,7 +332,7 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 			// fmt.Printf("Debug: Got open interest for %s: %.2f\n", result.symbol, result.openInterest)
 		}
 	}
-	
+
 	// 如果有超过5个错误，打印一个汇总信息
 	if errorCount > 5 {
 		fmt.Printf("... and %d more errors (suppressed)\n", errorCount-5)
@@ -378,7 +375,6 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 	hasRealData = len(coinList) > 0
 	fmt.Printf("Debug: Final coinList length: %d, hasRealData: %v\n", len(coinList), hasRealData)
 
-
 	// 如果没有获取到真实数据，使用样本数据作为回退
 	if !hasRealData {
 		fmt.Printf("Using sample OI data as fallback since no real data available\n")
@@ -386,7 +382,7 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 	} else if len(coinList) > 0 {
 		// 缓存结果到文件，有效期5分钟
 		cachedResult := cachedOITopResult{
-			Items: coinList,
+			Items:  coinList,
 			Expiry: time.Now().Add(5 * time.Minute),
 		}
 		if data, err := json.Marshal(cachedResult); err == nil {
@@ -456,66 +452,67 @@ func (s *CoinPoolService) fetchBinanceFuturesTickers() ([]BinanceFuturesTicker, 
 	// 重试机制
 	maxRetries := 2
 	var lastErr error
-	
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			// 指数退避
 			time.Sleep(time.Duration(attempt*1000) * time.Millisecond)
 		}
-		
+
 		resp, err := client.Do(req)
 		if err != nil {
 			// 继续尝试，不设置错误变量
 			continue
 		}
-		
+
 		defer resp.Body.Close()
-		
+
 		if resp.StatusCode == http.StatusOK {
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				// 继续尝试
 				continue
 			}
-			
+
 			var tickers []BinanceFuturesTicker
 			err = json.Unmarshal(body, &tickers)
-				if err != nil {
-					// 继续尝试
-					continue
-				}
-				
-				// 注意：根据用户反馈和实际测试，ticker数据中通常不包含有效的持仓量信息
+			if err != nil {
+				// 继续尝试
+				continue
+			}
+
+			// 注意：根据用户反馈和实际测试，ticker数据中通常不包含有效的持仓量信息
 			// 但我们仍然尝试提取，以备API在未来返回这些数据
-			s.openInterestMutex.Lock()
-			hasOIData := false
-			for _, ticker := range tickers {
-				// 检查是否有有效的持仓量数据
-				if ticker.OpenInterest != "" && ticker.OpenInterest != "0" {
-					if oi, err := strconv.ParseFloat(ticker.OpenInterest, 64); err == nil {
-						s.openInterestCache[ticker.Symbol] = oi
-						hasOIData = true
-						// 仅在调试模式下打印这些日志
-						// fmt.Printf("Debug: Found open interest in ticker data for %s: %.2f\n", ticker.Symbol, oi)
-					}
-				}
-			}
-			
-			// 只在找到OI数据时更新过期时间
-			if hasOIData {
-				s.openInterestExpiry = time.Now().Add(5 * time.Minute)
-			}
-			s.openInterestMutex.Unlock()
-			
+			// ⚠️ 重要：ticker.OpenInterest 是合约数量，不是持仓价值！
+			// 不应在此处缓存，因为持仓价值 = 合约数量 × 价格
+			// 正确的持仓价值计算在 fetchBinanceOpenInterest 函数中
+			// s.openInterestMutex.Lock()
+			// hasOIData := false
+			// for _, ticker := range tickers {
+			// 	// 检查是否有有效的持仓量数据
+			// 	if ticker.OpenInterest != "" && ticker.OpenInterest != "0" {
+			// 		if oi, err := strconv.ParseFloat(ticker.OpenInterest, 64); err == nil {
+			// 			s.openInterestCache[ticker.Symbol] = oi
+			// 			hasOIData = true
+			// 		}
+			// 	}
+			// }
+			//
+			// // 只在找到OI数据时更新过期时间
+			// if hasOIData {
+			// 	s.openInterestExpiry = time.Now().Add(5 * time.Minute)
+			// }
+			// s.openInterestMutex.Unlock()
+
 			fmt.Printf("Successfully fetched %d futures tickers\n", len(tickers))
 			return tickers, nil
 		}
-		
+
 		// 读取错误响应体以便调试
 		errorBody, _ := io.ReadAll(resp.Body)
 		lastErr = fmt.Errorf("unexpected status code: %d, response: %s", resp.StatusCode, string(errorBody))
 	}
-	
+
 	return nil, lastErr
 }
 
@@ -534,7 +531,7 @@ func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, erro
 
 	// 缓存无效或不存在，从API获取
 	// fmt.Printf("Debug: Fetching open interest from API for %s\n", symbol)
-	
+
 	// 使用Binance专门的持仓量API端点
 	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/openInterest?symbol=%s", symbol)
 
@@ -552,83 +549,71 @@ func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, erro
 
 	// 重试机制
 	maxRetries := 2
-	
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			// 指数退避
 			time.Sleep(time.Duration(attempt*1000) * time.Millisecond)
 		}
-		
+
 		resp, err := client.Do(req)
 		if err != nil {
-		continue
-	}
-		
+			continue
+		}
+
 		// 读取响应体
 		errorBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close() // 立即关闭，避免defer导致的资源泄漏
-		
+
 		if resp.StatusCode == http.StatusOK {
 			var oiResp BinanceOpenInterestResponse
 			err = json.Unmarshal(errorBody, &oiResp)
 			if err != nil {
-		continue
-	}
-			
+				continue
+			}
+
 			// 解析持仓量
 			var openInterest float64
 			if _, err := fmt.Sscanf(oiResp.OpenInterest, "%f", &openInterest); err != nil {
-		continue
-	}
-			
+				continue
+			}
+
 			// 持仓量API返回的是合约数量，需要转换为价值
 			// 首先获取当前价格
 			priceUrl := fmt.Sprintf("https://fapi.binance.com/fapi/v1/ticker/price?symbol=%s", symbol)
 			priceReq, _ := http.NewRequest("GET", priceUrl, nil)
 			priceReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-			
+
 			priceResp, priceErr := client.Do(priceReq)
 			if priceErr != nil {
-		// 价格获取失败时，尝试使用当前的持仓量
-		// 只在调试模式下打印警告
-		// fmt.Printf("Warning: Failed to get price for %s, using open interest count: %v\n", symbol, priceErr)
-				
-				// 更新缓存
-				s.openInterestMutex.Lock()
-				if time.Now().After(s.openInterestExpiry) {
-					s.openInterestExpiry = time.Now().Add(5 * time.Minute)
-				}
-				s.openInterestCache[symbol] = openInterest
-				s.openInterestMutex.Unlock()
-				
-				return openInterest, nil
+				// 价格获取失败，返回错误，不应该返回合约数量
+				return 0, fmt.Errorf("failed to get price for %s: %v", symbol, priceErr)
 			}
 			defer priceResp.Body.Close()
-			
+
 			if priceResp.StatusCode == http.StatusOK {
 				priceBody, _ := io.ReadAll(priceResp.Body)
-				
+
 				type priceResponse struct {
-					Symbol string  `json:"symbol"`
-					Price  float64 `json:"price"`
+					Symbol string `json:"symbol"`
+					Price  string `json:"price"` // Binance返回的是字符串
 				}
-				
+
 				var pResp priceResponse
 				if err := json.Unmarshal(priceBody, &pResp); err != nil {
-					// 如果解析价格失败，只返回持仓量
-					s.openInterestMutex.Lock()
-					if time.Now().After(s.openInterestExpiry) {
-						s.openInterestExpiry = time.Now().Add(5 * time.Minute)
-					}
-					s.openInterestCache[symbol] = openInterest
-					s.openInterestMutex.Unlock()
-					
-					return openInterest, nil
+					// 如果解析价格失败，返回错误
+					return 0, fmt.Errorf("failed to parse price response for %s: %v", symbol, err)
 				}
-				
+
+				// 解析价格字符串为float64
+				var price float64
+				if _, err := fmt.Sscanf(pResp.Price, "%f", &price); err != nil {
+					return 0, fmt.Errorf("failed to parse price value for %s: %v", symbol, err)
+				}
+
 				// 计算持仓价值（持仓量 * 价格）
-				openInterestValue := openInterest * pResp.Price
-				
+				openInterestValue := openInterest * price
+
 				// 更新缓存
 				s.openInterestMutex.Lock()
 				if time.Now().After(s.openInterestExpiry) {
@@ -636,9 +621,12 @@ func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, erro
 				}
 				s.openInterestCache[symbol] = openInterestValue
 				s.openInterestMutex.Unlock()
-				
-				// fmt.Printf("Debug: Got open interest for %s: %.2f\n", symbol, openInterestValue)
+
+				// fmt.Printf("Debug: Got open interest for %s: %.2f (count: %.2f, price: %.4f)\n", symbol, openInterestValue, openInterest, price)
 				return openInterestValue, nil
+			} else {
+				// 价格API返回错误状态码
+				return 0, fmt.Errorf("price API returned status %d for %s", priceResp.StatusCode, symbol)
 			}
 		} else if resp.StatusCode == http.StatusBadRequest {
 			// 特殊处理400错误，检查是否是币种已下架或结算中的情况
@@ -653,7 +641,7 @@ func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, erro
 			// 记录错误但继续尝试
 		}
 	}
-	
+
 	// 减少错误日志的详细程度，避免日志过于冗长
 	return 0, fmt.Errorf("failed to fetch open interest for %s", symbol)
 }
@@ -685,7 +673,7 @@ func (s *CoinPoolService) loadCoinNamesCache() error {
 	var lastErr error
 	var body []byte
 	var resp *http.Response
-	
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			// 指数退避
@@ -693,60 +681,60 @@ func (s *CoinPoolService) loadCoinNamesCache() error {
 			fmt.Printf("Retrying CoinGecko API request after %v...\n", sleepTime)
 			time.Sleep(sleepTime)
 		}
-		
+
 		resp, err = client.Do(req)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		
+
 		body, err = io.ReadAll(resp.Body)
 		resp.Body.Close() // 立即关闭，避免defer导致的资源泄漏
-		
+
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 			continue
 		}
-		
+
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		
+
 		break // 成功获取响应
 	}
-	
+
 	// 即使API调用失败，我们仍然可以使用预定义的币种名称
 	s.cacheMutex.Lock()
 	defer s.cacheMutex.Unlock()
-	
+
 	// 直接设置主流币种的官方名称（无论API调用是否成功）
 	// 这种方法最可靠，确保主流币种始终显示其标准名称
 	s.coinCache = map[string]string{
-		"BTC":  "Bitcoin",
-		"ETH":  "Ethereum",
-		"BNB":  "BNB",
-		"SOL":  "Solana",
-		"XRP":  "XRP",
-		"ADA":  "Cardano",
-		"DOT":  "Polkadot",
-		"DOGE": "Dogecoin",
-		"AVAX": "Avalanche",
+		"BTC":   "Bitcoin",
+		"ETH":   "Ethereum",
+		"BNB":   "BNB",
+		"SOL":   "Solana",
+		"XRP":   "XRP",
+		"ADA":   "Cardano",
+		"DOT":   "Polkadot",
+		"DOGE":  "Dogecoin",
+		"AVAX":  "Avalanche",
 		"MATIC": "Polygon",
-		"LINK": "Chainlink",
-		"UNI": "Uniswap",
-		"LTC": "Litecoin",
-		"BCH": "Bitcoin Cash",
-		"TRX": "TRON",
-		"XMR": "Monero",
-		"ATOM": "Cosmos",
-		"XTZ": "Tezos",
-		"EOS": "EOS",
-		"ALGO": "Algorand",
-		"ICP": "Internet Computer",
-		"FIL": "Filecoin",
+		"LINK":  "Chainlink",
+		"UNI":   "Uniswap",
+		"LTC":   "Litecoin",
+		"BCH":   "Bitcoin Cash",
+		"TRX":   "TRON",
+		"XMR":   "Monero",
+		"ATOM":  "Cosmos",
+		"XTZ":   "Tezos",
+		"EOS":   "EOS",
+		"ALGO":  "Algorand",
+		"ICP":   "Internet Computer",
+		"FIL":   "Filecoin",
 	}
-	
+
 	// 只有在API调用成功时才尝试解析和加载额外的币种名称
 	if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 		// 解析CoinGecko响应
