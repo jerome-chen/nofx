@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"nofx/api/coin_pool"
 	"nofx/auth"
 	"nofx/config"
 	"nofx/decision"
@@ -71,6 +72,24 @@ func (s *Server) setupRoutes() {
 	{
 		// 健康检查
 		api.Any("/health", s.handleHealth)
+		
+		// 集成coin_pool API路由
+		coinPool := api.Group("/coin-pool")
+		{
+			// 创建coin_pool处理器
+			coinPoolHandler := coin_pool.NewCoinPoolHandler()
+			
+			// 注册AI500币种池路由
+			coinPool.GET("/ai500", func(c *gin.Context) {
+				coinPoolHandler.HandleGetCoinPoolAI500(c.Writer, c.Request)
+			})
+			
+			// 注册OI Top路由
+			coinPool.GET("/oi-top", func(c *gin.Context) {
+				coinPoolHandler.HandleGetCoinPoolOITop(c.Writer, c.Request)
+			})
+		}
+		
 
 		// 认证相关路由（无需认证）
 		api.POST("/register", s.handleRegister)
