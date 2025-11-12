@@ -63,10 +63,13 @@ func (h *CoinPoolHandler) HandleGetCoinPoolAI500(w http.ResponseWriter, r *http.
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
 
-	// 返回JSON数据（包含success和data字段）
+	// 返回JSON数据（与CoinPoolAPIResponse格式匹配）
 	response := map[string]interface{}{
 		"success": true,
-		"data":    coinList,
+		"data": map[string]interface{}{
+			"coins": coinList,
+			"count": len(coinList),
+		},
 	}
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -89,10 +92,15 @@ func (h *CoinPoolHandler) HandleGetCoinPoolOITop(w http.ResponseWriter, r *http.
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
 
-	// 返回JSON数据（包含success和data字段）
+	// 返回JSON数据（与OITopAPIResponse格式匹配）
 	response := map[string]interface{}{
 		"success": true,
-		"data":    coinList,
+		"data": map[string]interface{}{
+			"positions": coinList,
+			"count":     len(coinList),
+			"exchange":  "binance", // 设置默认交易所
+			"time_range": "1h",    // 设置默认时间范围
+		},
 	}
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
