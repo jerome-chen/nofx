@@ -571,6 +571,9 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 		return
 	}
 
+	// 检查并为该交易员的交易所创建WSMonitor实例（如果不存在）
+	s.traderManager.AddTraderToExchangeMonitor(trader)
+
 	// 启动交易员
 	go func() {
 		log.Printf("▶️  启动交易员 %s (%s)", traderID, trader.GetName())

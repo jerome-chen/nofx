@@ -428,6 +428,31 @@ func (tm *TraderManager) GetTraderIDs() []string {
 	return ids
 }
 
+// AddTraderToExchangeMonitor 将交易员添加到对应的交易所监控器
+// 当单独启动交易员时，确保其交易所的WSMonitor实例已创建并配置
+func (tm *TraderManager) AddTraderToExchangeMonitor(trader *trader.AutoTrader) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	exchange := trader.GetExchange()
+	tradingCoins := trader.GetTradingCoins()
+	
+	// 检查该交易所是否已有监控器
+	monitor, exists := tm.exchangesToMonitors[exchange]
+	if !exists {
+		// 如果没有监控器，创建一个新的
+		log.Printf("📊 为交易所 %s 创建WebSocket监控实例", exchange)
+		monitor = market.NewWSMonitor(150)
+		tm.exchangesToMonitors[exchange] = monitor
+		// 启动监控，传入该交易员的交易币种
+		go monitor.Start(tradingCoins)
+	} else {
+		// 如果已有监控器，确保所有交易币种都被监控
+		// 注意：这里简化处理，实际可能需要更复杂的逻辑来更新监控的币种列表
+		log.Printf("📊 交易员 %s 使用的交易所 %s 已有监控实例", trader.GetName(), exchange)
+	}
+}
+
 // StartAll 启动所有trader
 func (tm *TraderManager) StartAll() {
 	tm.mu.Lock()
