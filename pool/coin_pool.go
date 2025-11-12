@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -170,6 +171,14 @@ func getExchangeAPIURL(exchange string) string {
 	}
 	if url, exists := coinPoolConfig.ExchangeAPIURLs[exchange]; exists {
 		return url
+	}
+	// 在没有特定交易所URL时使用默认APIURL并添加exchange参数
+	if coinPoolConfig.APIURL != "" {
+		// 检查URL是否已经包含查询参数
+		if strings.Contains(coinPoolConfig.APIURL, "?") {
+			return coinPoolConfig.APIURL + "&exchange=" + exchange
+		}
+		return coinPoolConfig.APIURL + "?exchange=" + exchange
 	}
 	return coinPoolConfig.APIURL // 默认使用全局API URL
 }
