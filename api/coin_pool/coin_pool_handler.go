@@ -63,8 +63,12 @@ func (h *CoinPoolHandler) HandleGetCoinPoolAI500(w http.ResponseWriter, r *http.
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
 
-	// 返回JSON数据
-	if err := json.NewEncoder(w).Encode(coinList); err != nil {
+	// 返回JSON数据（包含success和data字段）
+	response := map[string]interface{}{
+		"success": true,
+		"data":    coinList,
+	}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{\"error\": \"Failed to encode response\"}`))
 	}
@@ -85,8 +89,12 @@ func (h *CoinPoolHandler) HandleGetCoinPoolOITop(w http.ResponseWriter, r *http.
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
 
-	// 返回JSON数据
-	if err := json.NewEncoder(w).Encode(coinList); err != nil {
+	// 返回JSON数据（包含success和data字段）
+	response := map[string]interface{}{
+		"success": true,
+		"data":    coinList,
+	}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{\"error\": \"Failed to encode response\"}`))
 	}

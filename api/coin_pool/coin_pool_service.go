@@ -234,18 +234,62 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 	priceMap := make(map[string]float64)
 	changeRateMap := make(map[string]float64)
 
-	for _, ticker := range futuresTickers {
-		// 只处理主流币种的USDT永续合约（不包含杠杆和期权合约）
-		if strings.HasSuffix(ticker.Symbol, "USDT") && !strings.Contains(ticker.Symbol, "_") && len(ticker.Symbol) > 4 {
-			usdtSymbols = append(usdtSymbols, ticker.Symbol)
+	// 定义主流币种列表，只处理这些币种
+	mainstreamCoins := map[string]bool{
+		"BTC": true, "ETH": true, "BNB": true, "SOL": true, "XRP": true, "ADA": true, 
+		"DOT": true, "DOGE": true, "AVAX": true, "MATIC": true, "LINK": true, "UNI": true,
+		"LTC": true, "BCH": true, "TRX": true, "XMR": true, "ATOM": true, "XTZ": true,
+		"EOS": true, "ALGO": true, "ICP": true, "FIL": true, "AAVE": true, "MKR": true,
+		"COMP": true, "SNX": true, "CRV": true, "SUSHI": true, "BAND": true, "NEO": true,
+		"THETA": true, "VET": true, "XLM": true, "ZEC": true, "KSM": true, "DASH": true,
+		"HBAR": true, "ONT": true, "QNT": true, "RUNE": true, "DYDX": true,
+	}
 
-			// 解析价格和涨跌幅并存储
-			var price, changeRate float64
-			if _, err := fmt.Sscanf(ticker.LastPrice, "%f", &price); err == nil {
-				priceMap[ticker.Symbol] = price
+	for _, ticker := range futuresTickers {
+		// 只处理USDT永续合约（不包含杠杆和期权合约）
+		if strings.HasSuffix(ticker.Symbol, "USDT") && !strings.Contains(ticker.Symbol, "_") && len(ticker.Symbol) > 4 {
+			symbol := strings.TrimSuffix(ticker.Symbol, "USDT")
+			
+			// 优先处理主流币种
+			if mainstreamCoins[symbol] {
+				usdtSymbols = append(usdtSymbols, ticker.Symbol)
+
+				// 解析价格和涨跌幅并存储
+				var price, changeRate float64
+				if _, err := fmt.Sscanf(ticker.LastPrice, "%f", &price); err == nil {
+					priceMap[ticker.Symbol] = price
+				}
+				if _, err := fmt.Sscanf(ticker.PriceChangePercent, "%f", &changeRate); err == nil {
+					changeRateMap[ticker.Symbol] = changeRate
+				}
 			}
-			if _, err := fmt.Sscanf(ticker.PriceChangePercent, "%f", &changeRate); err == nil {
-				changeRateMap[ticker.Symbol] = changeRate
+		}
+	}
+	
+	// 如果主流币种不足20个，再补充一些其他交易对
+	if len(usdtSymbols) < 20 {
+		for _, ticker := range futuresTickers {
+			if strings.HasSuffix(ticker.Symbol, "USDT") && !strings.Contains(ticker.Symbol, "_") && len(ticker.Symbol) > 4 {
+				symbol := strings.TrimSuffix(ticker.Symbol, "USDT")
+				// 跳过已添加的主流币种
+				if !mainstreamCoins[symbol] {
+					// 跳过名称过长或包含特殊字符的币种
+					if len(symbol) <= 10 {
+						usdtSymbols = append(usdtSymbols, ticker.Symbol)
+
+						// 解析价格和涨跌幅并存储
+						var price, changeRate float64
+						if _, err := fmt.Sscanf(ticker.LastPrice, "%f", &price); err == nil {
+							priceMap[ticker.Symbol] = price
+						}
+						if _, err := fmt.Sscanf(ticker.PriceChangePercent, "%f", &changeRate); err == nil {
+							changeRateMap[ticker.Symbol] = changeRate
+						}
+					}
+				}
+				if len(usdtSymbols) >= 20 {
+					break
+				}
 			}
 		}
 	}
@@ -345,6 +389,12 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 		coinName := s.getCoinNameBySymbol(symbolWithoutUSDT)
 		price := priceMap[symbol]
 		changeRate := changeRateMap[symbol]
+		
+		// 清理币种名称，避免过长或包含奇怪字符的名称
+		// 如果名称过长或包含多个空格，使用符号作为名称
+		if len(coinName) > 30 || strings.Count(coinName, " ") > 3 {
+			coinName = symbolWithoutUSDT
+		}
 
 		sortedItems = append(sortedItems, OITopItem{
 			CoinName:   coinName,
