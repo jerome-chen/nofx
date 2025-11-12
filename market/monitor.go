@@ -56,6 +56,7 @@ func (m *WSMonitor) Initialize(coins []string) error {
 		if err != nil {
 			return err
 		}
+		log.Printf("传入币种为空，使用交易所的所有交易对，共 %d 个。", len(exchangeInfo.Symbols))
 		// 筛选永续合约交易对 --仅测试时使用
 		//exchangeInfo.Symbols = exchangeInfo.Symbols[0:2]
 		for _, symbol := range exchangeInfo.Symbols {

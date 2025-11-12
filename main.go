@@ -303,8 +303,55 @@ func main() {
 		}
 	}()
 
-	// 启动流行情数据 - 默认使用所有交易员设置的币种 如果没有设置币种 则优先使用系统默认
-	go market.NewWSMonitor(150).Start(database.GetCustomCoins())
+	// 启动流行情数据 - 基于配置选择交易币种
+	var tradingCoins []string
+	var coinSource string
+	
+	// 配置驱动的币种选择逻辑
+	if useDefaultCoins {
+		// 使用默认币种列表
+		tradingCoins = defaultCoins
+		coinSource = "默认币种列表"
+		log.Printf("📊 使用配置的默认币种列表，共%d个币种", len(tradingCoins))
+	} else {
+		// 检查是否配置了币种池API
+		coinPoolAPIURL, _ := database.GetSystemConfig("coin_pool_api_url")
+		oiTopAPIURL, _ := database.GetSystemConfig("oi_top_api_url")
+		
+		if coinPoolAPIURL != "" || oiTopAPIURL != "" {
+			// 使用合并的AI500和OI Top币种池
+			mergedPool, err := pool.GetMergedCoinPool(20) // 获取评分前20的AI500币种和全部OI Top币种
+			if err != nil {
+				log.Printf("⚠️ 获取合并币种池失败: %v，回退到自定义币种", err)
+				tradingCoins = database.GetCustomCoins()
+				coinSource = "自定义币种（回退）"
+			} else if len(mergedPool.AllSymbols) > 0 {
+				tradingCoins = mergedPool.AllSymbols
+				coinSource = "AI500+OI Top币种池"
+				log.Printf("📊 使用合并币种池，共%d个币种", len(tradingCoins))
+			} else {
+				log.Printf("⚠️ 合并币种池为空，回退到自定义币种")
+				tradingCoins = database.GetCustomCoins()
+				coinSource = "自定义币种（回退）"
+			}
+		} else {
+			// 没有配置API，使用自定义币种
+			tradingCoins = database.GetCustomCoins()
+			coinSource = "自定义币种"
+			log.Printf("📊 使用自定义币种，共%d个币种", len(tradingCoins))
+		}
+	}
+	
+	// 如果所有配置的币种都为空，则使用默认币种作为最终回退
+	if len(tradingCoins) == 0 {
+		tradingCoins = defaultCoins
+		coinSource = "默认币种（最终回退）"
+		log.Printf("⚠️ 所有配置的币种列表为空，使用默认币种作为最终回退，共%d个币种", len(tradingCoins))
+	}
+	
+	// 启动WSMonitor
+	log.Printf("🚀 启动WebSocket监控器，币种来源: %s, 币种数量: %d", coinSource, len(tradingCoins))
+	go market.NewWSMonitor(150).Start(tradingCoins)
 	//go market.NewWSMonitor(150).Start([]string{}) //这里是一个使用方式 传入空的话 则使用market市场的所有币种
 	// 设置优雅退出
 	sigChan := make(chan os.Signal, 1)
