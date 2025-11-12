@@ -37,6 +37,65 @@ func NewCoinPoolService() *CoinPoolService {
 	}
 }
 
+// fetchAsterFuturesTickers 获取Aster交易所期货行情数据
+func (s *CoinPoolService) fetchAsterFuturesTickers() ([]BinanceFuturesTicker, error) {
+	// 使用Aster的永续合约API端点
+	url := "https://fapi.asterdex.com/fapi/v1/ticker/24hr"
+
+	// 创建HTTP客户端并设置超时
+	client := &http.Client{
+		Timeout: 15 * time.Second, // 增加超时时间
+	}
+
+	// 创建请求并添加User-Agent头以避免被拒绝
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+	// 重试机制
+	maxRetries := 2
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// 指数退避
+			time.Sleep(time.Duration(attempt*1000) * time.Millisecond)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			// 继续尝试，不设置错误变量
+			continue
+		}
+
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+
+			var tickers []BinanceFuturesTicker
+			err = json.Unmarshal(body, &tickers)
+			if err != nil {
+				return nil, err
+			}
+
+			return tickers, nil
+		}
+
+		// 读取错误响应体
+		errorBody, _ := io.ReadAll(resp.Body)
+		lastErr = fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(errorBody))
+	}
+
+	// 如果所有尝试都失败，返回最后一个错误
+	return nil, fmt.Errorf("failed after %d attempts: %w", maxRetries+1, lastErr)
+}
+
 // BinanceTicker24h 定义Binance 24小时行情响应结构
 type BinanceTicker24h struct {
 	Symbol             string `json:"symbol"`
@@ -149,9 +208,11 @@ func (s *CoinPoolService) GetAI500CoinPool(exchange string) ([]CoinPoolItem, err
 			return s.getDefaultAI500CoinPool(), nil
 		}
 	case "aster":
-		// TODO: 实现Aster交易所的数据获取
-		fmt.Printf("Warning: Aster exchange support is not implemented yet\n")
-		return s.GetAI500CoinPool("binance") // 暂时回退到Binance
+		tickers, err = s.fetchAster24hTickers()
+		if err != nil {
+			fmt.Printf("❌ 获取Aster数据失败: %v，尝试使用默认币种列表\n", err)
+			return s.getDefaultAI500CoinPool(), nil
+		}
 	case "hyperliquid":
 		// TODO: 实现Hyperliquid交易所的数据获取
 		fmt.Printf("Warning: Hyperliquid exchange support is not implemented yet\n")
@@ -260,9 +321,12 @@ func (s *CoinPoolService) GetOITopCoinPool(exchange string) ([]OITopItem, error)
 			return s.getDefaultOITopCoinPool(), nil
 		}
 	case "aster":
-		// TODO: 实现Aster交易所的数据获取
-		fmt.Printf("Warning: Aster exchange support is not implemented yet\n")
-		return s.GetOITopCoinPool("binance") // 暂时回退到Binance
+		// 获取Aster期货交易对列表
+		futuresTickers, err = s.fetchAsterFuturesTickers()
+		if err != nil || len(futuresTickers) == 0 {
+			fmt.Printf("Error fetching %s futures tickers or empty result: %v\n", exchange, err)
+			return s.getDefaultOITopCoinPool(), nil
+		}
 	case "hyperliquid":
 		// TODO: 实现Hyperliquid交易所的数据获取
 		fmt.Printf("Warning: Hyperliquid exchange support is not implemented yet\n")
@@ -390,8 +454,15 @@ func (s *CoinPoolService) GetOITopCoinPool(exchange string) ([]OITopItem, error)
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			// 获取持仓量数据
-			openInterest, err := s.fetchBinanceOpenInterest(sym)
+			// 根据交易所选择正确的获取持仓量方法
+			var openInterest float64
+			var err error
+			switch exchange {
+			case "aster":
+				openInterest, err = s.fetchAsterOpenInterest(sym)
+			default:
+				openInterest, err = s.fetchBinanceOpenInterest(sym)
+			}
 			resultChan <- oiResult{symbol: sym, openInterest: openInterest, err: err}
 
 			// 避免API请求过于频繁
@@ -583,6 +654,33 @@ func (s *CoinPoolService) fetchBinance24hTickers() ([]BinanceTicker24h, error) {
 	return tickers, nil
 }
 
+// fetchAster24hTickers 获取Aster交易所24小时行情数据
+func (s *CoinPoolService) fetchAster24hTickers() ([]BinanceTicker24h, error) {
+	url := fmt.Sprintf("https://fapi.asterdex.com/fapi/v1/ticker/24hr")
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var tickers []BinanceTicker24h
+	err = json.Unmarshal(body, &tickers)
+	if err != nil {
+		return nil, err
+	}
+
+	return tickers, nil
+}
+
 // fetchBinanceFuturesTickers 从Binance API获取期货行情数据（用于获取交易对列表和价格信息）
 func (s *CoinPoolService) fetchBinanceFuturesTickers() ([]BinanceFuturesTicker, error) {
 	// 使用正确的永续合约API端点
@@ -668,6 +766,135 @@ func (s *CoinPoolService) fetchBinanceFuturesTickers() ([]BinanceFuturesTicker, 
 }
 
 // fetchBinanceOpenInterest 从Binance API获取特定交易对的持仓量数据
+func (s *CoinPoolService) fetchAsterOpenInterest(symbol string) (float64, error) {
+	// 检查缓存是否有效
+	s.openInterestMutex.RLock()
+	if time.Now().Before(s.openInterestExpiry) {
+		if oi, exists := s.openInterestCache[symbol]; exists {
+			s.openInterestMutex.RUnlock()
+			// 不打印每条缓存命中的日志，减少日志噪声
+			return oi, nil
+		}
+	}
+	s.openInterestMutex.RUnlock()
+
+	// 缓存无效或不存在，从API获取
+	// fmt.Printf("Debug: Fetching open interest from API for %s\n", symbol)
+
+	// 使用Aster专门的持仓量API端点（与Binance兼容）
+	url := fmt.Sprintf("https://fapi.asterdex.com/fapi/v1/openInterest?symbol=%s", symbol)
+
+	// 创建HTTP客户端并设置超时
+	client := &http.Client{
+		Timeout: 15 * time.Second, // 增加超时时间
+	}
+
+	// 创建请求并添加User-Agent头以避免被拒绝
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+	// 重试机制
+	maxRetries := 2
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// 指数退避
+			time.Sleep(time.Duration(attempt*1000) * time.Millisecond)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+
+		// 读取响应体
+		errorBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close() // 立即关闭，避免defer导致的资源泄漏
+
+		if resp.StatusCode == http.StatusOK {
+			var oiResp BinanceOpenInterestResponse
+			err = json.Unmarshal(errorBody, &oiResp)
+			if err != nil {
+				continue
+			}
+
+			// 解析持仓量
+			var openInterest float64
+			if _, err := fmt.Sscanf(oiResp.OpenInterest, "%f", &openInterest); err != nil {
+				continue
+			}
+
+			// 持仓量API返回的是合约数量，需要转换为价值
+			// 首先获取当前价格
+			priceUrl := fmt.Sprintf("https://fapi.asterdex.com/fapi/v1/ticker/price?symbol=%s", symbol)
+			priceReq, _ := http.NewRequest("GET", priceUrl, nil)
+			priceReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+			priceResp, priceErr := client.Do(priceReq)
+			if priceErr != nil {
+				// 价格获取失败，返回错误，不应该返回合约数量
+				return 0, fmt.Errorf("failed to get price for %s: %v", symbol, priceErr)
+			}
+			defer priceResp.Body.Close()
+
+			if priceResp.StatusCode == http.StatusOK {
+				priceBody, _ := io.ReadAll(priceResp.Body)
+
+				type priceResponse struct {
+					Symbol string `json:"symbol"`
+					Price  string `json:"price"` // Binance返回的是字符串
+				}
+
+				var pResp priceResponse
+				if err := json.Unmarshal(priceBody, &pResp); err != nil {
+					// 如果解析价格失败，返回错误
+					return 0, fmt.Errorf("failed to parse price response for %s: %v", symbol, err)
+				}
+
+				// 解析价格字符串为float64
+				var price float64
+				if _, err := fmt.Sscanf(pResp.Price, "%f", &price); err != nil {
+					return 0, fmt.Errorf("failed to parse price value for %s: %v", symbol, err)
+				}
+
+				// 计算持仓价值（持仓量 * 价格）
+				openInterestValue := openInterest * price
+
+				// 更新缓存
+				s.openInterestMutex.Lock()
+				if time.Now().After(s.openInterestExpiry) {
+					s.openInterestExpiry = time.Now().Add(5 * time.Minute)
+				}
+				s.openInterestCache[symbol] = openInterestValue
+				s.openInterestMutex.Unlock()
+
+				// fmt.Printf("Debug: Got open interest for %s: %.2f (count: %.2f, price: %.4f)\n", symbol, openInterestValue, openInterest, price)
+				return openInterestValue, nil
+			} else {
+				// 价格API返回错误状态码
+				return 0, fmt.Errorf("price API returned status %d for %s", priceResp.StatusCode, symbol)
+			}
+		} else if resp.StatusCode == http.StatusBadRequest {
+			// 特殊处理400错误，检查是否是币种已下架或结算中的情况
+			errorStr := string(errorBody)
+			if strings.Contains(errorStr, "delivering or delivered or settling or closed or pre-trading") {
+				// 这是预期的错误，币种可能已下架或处于特殊状态
+				// 不返回错误，而是返回0并跳过这个币种
+				return 0, fmt.Errorf("symbol %s is not available for trading", symbol)
+			}
+			// 记录错误但继续尝试
+		} else {
+			// 记录错误但继续尝试
+		}
+	}
+
+	// 减少错误日志的详细程度，避免日志过于冗长
+	return 0, fmt.Errorf("failed to fetch open interest for %s", symbol)
+}
+
 func (s *CoinPoolService) fetchBinanceOpenInterest(symbol string) (float64, error) {
 	// 检查缓存是否有效
 	s.openInterestMutex.RLock()
