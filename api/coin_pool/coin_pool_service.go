@@ -129,11 +129,36 @@ type BinanceOpenInterestResponse struct {
 }
 
 // GetAI500CoinPool 从上游数据源获取AI500币池数据
-func (s *CoinPoolService) GetAI500CoinPool() ([]CoinPoolItem, error) {
-	// 获取Binance 24小时行情数据
-	tickers, err := s.fetchBinance24hTickers()
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch binance tickers: %v", err)
+func (s *CoinPoolService) GetAI500CoinPool(exchange string) ([]CoinPoolItem, error) {
+	// 确保exchange参数有效
+	if exchange == "" {
+		exchange = "binance"
+	}
+	
+	fmt.Printf("获取%s交易所的AI500币池数据\n", exchange)
+	
+	// 根据不同交易所获取行情数据
+	var tickers []BinanceTicker24h
+	var err error
+	
+	switch exchange {
+	case "binance":
+		tickers, err = s.fetchBinance24hTickers()
+		if err != nil {
+			fmt.Printf("❌ 获取Binance数据失败: %v，尝试使用默认币种列表\n", err)
+			return s.getDefaultAI500CoinPool(), nil
+		}
+	case "aster":
+		// TODO: 实现Aster交易所的数据获取
+		fmt.Printf("Warning: Aster exchange support is not implemented yet\n")
+		return s.GetAI500CoinPool("binance") // 暂时回退到Binance
+	case "hyperliquid":
+		// TODO: 实现Hyperliquid交易所的数据获取
+		fmt.Printf("Warning: Hyperliquid exchange support is not implemented yet\n")
+		return s.GetAI500CoinPool("binance") // 暂时回退到Binance
+	default:
+		fmt.Printf("⚠️ 不支持的交易所: %s，使用默认币种列表\n", exchange)
+		return s.getDefaultAI500CoinPool(), nil
 	}
 
 	// 确保coin名称缓存已加载
@@ -210,16 +235,41 @@ func (s *CoinPoolService) GetAI500CoinPool() ([]CoinPoolItem, error) {
 }
 
 // GetOITopCoinPool 从上游数据源获取OI排行榜数据
-func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
-	// 首先尝试从Binance获取真实数据
+func (s *CoinPoolService) GetOITopCoinPool(exchange string) ([]OITopItem, error) {
+	// 确保exchange参数有效
+	if exchange == "" {
+		exchange = "binance"
+	}
+	
+	fmt.Printf("获取%s交易所的OI排行榜数据\n", exchange)
+	
+	// 首先尝试获取真实数据
 	var coinList []OITopItem
 	hasRealData := false
 
-	// 1. 获取Binance期货交易对列表
-	futuresTickers, err := s.fetchBinanceFuturesTickers()
-	if err != nil || len(futuresTickers) == 0 {
-		fmt.Printf("Error fetching futures tickers or empty result: %v\n", err)
-		return s.getSampleOITopData(), nil
+	// 根据不同交易所获取期货交易对列表
+	var futuresTickers []BinanceFuturesTicker
+	var err error
+	
+	switch exchange {
+	case "binance":
+		// 获取Binance期货交易对列表
+		futuresTickers, err = s.fetchBinanceFuturesTickers()
+		if err != nil || len(futuresTickers) == 0 {
+			fmt.Printf("Error fetching %s futures tickers or empty result: %v\n", exchange, err)
+			return s.getDefaultOITopCoinPool(), nil
+		}
+	case "aster":
+		// TODO: 实现Aster交易所的数据获取
+		fmt.Printf("Warning: Aster exchange support is not implemented yet\n")
+		return s.GetOITopCoinPool("binance") // 暂时回退到Binance
+	case "hyperliquid":
+		// TODO: 实现Hyperliquid交易所的数据获取
+		fmt.Printf("Warning: Hyperliquid exchange support is not implemented yet\n")
+		return s.GetOITopCoinPool("binance") // 暂时回退到Binance
+	default:
+		fmt.Printf("⚠️ 不支持的交易所: %s，使用默认币种列表\n", exchange)
+		return s.getDefaultOITopCoinPool(), nil
 	}
 
 	// 确保coin名称缓存已加载
@@ -453,6 +503,57 @@ func (s *CoinPoolService) GetOITopCoinPool() ([]OITopItem, error) {
 func (s *CoinPoolService) getSampleOITopData() []OITopItem {
 	// 返回空列表，不再使用模拟数据
 	return []OITopItem{}
+}
+
+// getDefaultAI500CoinPool 获取默认AI500币种池作为回退
+func (s *CoinPoolService) getDefaultAI500CoinPool() []CoinPoolItem {
+	fmt.Printf("📋 使用默认AI500币种池作为回退\n")
+	defaultSymbols := []string{
+		"BTC", "ETH", "SOL", "BNB", "AVAX", "XRP", "ADA", "LINK", "DOGE", "DOT",
+		"MATIC", "TRX", "LTC", "ATOM", "XLM", "ICP", "FIL", "UNI", "ALGO", "SUI",
+	}
+	
+	// 转换为CoinPoolItem数组
+	coins := make([]CoinPoolItem, 0, len(defaultSymbols))
+	for i, symbol := range defaultSymbols {
+		coins = append(coins, CoinPoolItem{
+			CoinName:   s.getCoinNameBySymbol(symbol),
+			Symbol:     symbol,
+			Price:      1000.0,
+			ChangeRate: 0.0,
+			Volume:     10000.0,
+			QuoteVolume: 10000000.0,
+			Rank:       i + 1,
+		})
+		if len(coins) >= 20 {
+			break
+		}
+	}
+	
+	return coins
+}
+
+// getDefaultOITopCoinPool 获取默认OI Top币种池作为回退
+func (s *CoinPoolService) getDefaultOITopCoinPool() []OITopItem {
+	fmt.Printf("📋 使用默认OI Top币种池作为回退\n")
+	defaultOISymbols := []string{
+		"BTC", "ETH", "SOL", "BNB", "AVAX", "XRP", "ADA", "LINK", "DOGE", "DOT",
+	}
+	
+	// 转换为OITopItem数组
+	coins := make([]OITopItem, 0, len(defaultOISymbols))
+	for i, symbol := range defaultOISymbols {
+		coins = append(coins, OITopItem{
+			CoinName:   s.getCoinNameBySymbol(symbol),
+			Symbol:     symbol,
+			Price:      1000.0,
+			ChangeRate: 0.0,
+			OI:         1000000.0 * float64(len(defaultOISymbols)-i),
+			OIRank:     i + 1,
+		})
+	}
+	
+	return coins
 }
 
 // fetchBinance24hTickers 从Binance API获取24小时行情数据

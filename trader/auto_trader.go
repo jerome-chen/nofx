@@ -257,9 +257,9 @@ func (at *AutoTrader) Stop() {
 func (at *AutoTrader) runCycle() error {
 	at.callCount++
 
-	log.Printf("\n" + strings.Repeat("=", 70))
+	log.Println("\n" + strings.Repeat("=", 70))
 	log.Printf("⏰ %s - AI决策周期 #%d", time.Now().Format("2006-01-02 15:04:05"), at.callCount)
-	log.Printf(strings.Repeat("=", 70))
+	log.Println(strings.Repeat("=", 70))
 
 	// 创建决策记录
 	record := &logger.DecisionRecord{
@@ -346,19 +346,19 @@ func (at *AutoTrader) runCycle() error {
 		// 打印系统提示词和AI思维链（即使有错误，也要输出以便调试）
 		if decision != nil {
 			if decision.SystemPrompt != "" {
-				log.Printf("\n" + strings.Repeat("=", 70))
+				log.Println("\n" + strings.Repeat("=", 70))
 				log.Printf("📋 系统提示词 [模板: %s] (错误情况)", at.systemPromptTemplate)
 				log.Println(strings.Repeat("=", 70))
 				log.Println(decision.SystemPrompt)
-				log.Printf(strings.Repeat("=", 70) + "\n")
+				log.Println(strings.Repeat("=", 70) + "\n")
 			}
 
 			if decision.CoTTrace != "" {
-				log.Printf("\n" + strings.Repeat("-", 70))
+				log.Println("\n" + strings.Repeat("-", 70))
 				log.Println("💭 AI思维链分析（错误情况）:")
 				log.Println(strings.Repeat("-", 70))
 				log.Println(decision.CoTTrace)
-				log.Printf(strings.Repeat("-", 70) + "\n")
+				log.Println(strings.Repeat("-", 70) + "\n")
 			}
 		}
 
@@ -1032,8 +1032,14 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 		} else {
 			// 如果数据库中没有配置默认币种，则使用AI500+OI Top作为fallback
 			const ai500Limit = 20 // AI500取前20个评分最高的币种
+			
+			// 获取交易所信息
+			exchange := at.exchange
+			if exchange == "" {
+				exchange = "binance"
+			}
 
-			mergedPool, err := pool.GetMergedCoinPool(ai500Limit)
+			mergedPool, err := pool.GetMergedCoinPool(exchange, ai500Limit)
 			if err != nil {
 				return nil, fmt.Errorf("获取合并币种池失败: %w", err)
 			}

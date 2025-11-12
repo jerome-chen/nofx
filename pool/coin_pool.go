@@ -588,18 +588,23 @@ type MergedCoinPool struct {
 }
 
 // GetMergedCoinPool 获取合并后的币种池（AI500 + OI Top，去重）
-func GetMergedCoinPool(ai500Limit int) (*MergedCoinPool, error) {
+func GetMergedCoinPool(exchange string, ai500Limit int) (*MergedCoinPool, error) {
+	// 确保exchange参数有效
+	if exchange == "" {
+		exchange = "binance"
+	}
+	
 	// 1. 获取AI500数据
 	ai500TopSymbols, err := GetTopRatedCoins(ai500Limit)
 	if err != nil {
-		log.Printf("⚠️  获取AI500数据失败: %v", err)
+		log.Printf("⚠️  获取%s交易所AI500数据失败: %v", exchange, err)
 		ai500TopSymbols = []string{} // 失败时用空列表
 	}
 
 	// 2. 获取OI Top数据
 	oiTopSymbols, err := GetOITopSymbols()
 	if err != nil {
-		log.Printf("⚠️  获取OI Top数据失败: %v", err)
+		log.Printf("⚠️  获取%s交易所OI Top数据失败: %v", exchange, err)
 		oiTopSymbols = []string{} // 失败时用空列表
 	}
 
@@ -638,8 +643,8 @@ func GetMergedCoinPool(ai500Limit int) (*MergedCoinPool, error) {
 		SymbolSources: symbolSources,
 	}
 
-	log.Printf("📊 币种池合并完成: AI500=%d, OI_Top=%d, 总计(去重)=%d",
-		len(ai500TopSymbols), len(oiTopSymbols), len(allSymbols))
+	log.Printf("📊 %s交易所币种池合并完成: AI500=%d, OI_Top=%d, 总计(去重)=%d",
+		exchange, len(ai500TopSymbols), len(oiTopSymbols), len(allSymbols))
 
 	return merged, nil
 }

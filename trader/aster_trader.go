@@ -990,3 +990,78 @@ func (t *AsterTrader) FormatQuantity(symbol string, quantity float64) (string, e
 	}
 	return fmt.Sprintf("%v", formatted), nil
 }
+
+// GetCoinPool 获取Aster支持的币种池
+func (t *AsterTrader) GetCoinPool() ([]string, error) {
+	// 从Aster API获取所有交易对
+	resp, err := t.client.Get(t.baseURL + "/fapi/v3/exchangeInfo")
+	if err != nil {
+		return nil, fmt.Errorf("获取Aster交易对信息失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取Aster交易对信息失败: %w", err)
+	}
+
+	// 解析交易所信息
+	var exchangeInfo struct {
+		Symbols []struct {
+			Symbol       string `json:"symbol"`
+			QuoteAsset   string `json:"quoteAsset"`
+			ContractType string `json:"contractType"`
+		} `json:"symbols"`
+	}
+
+	if err := json.Unmarshal(body, &exchangeInfo); err != nil {
+		return nil, fmt.Errorf("解析Aster交易对信息失败: %w", err)
+	}
+
+	// 过滤出USDT永续合约交易对
+	var symbols []string
+	for _, symbol := range exchangeInfo.Symbols {
+		// 检查是否为USDT交易对且是永续合约
+		if symbol.QuoteAsset == "USDT" && strings.Contains(strings.ToUpper(symbol.ContractType), "PERPETUAL") {
+			// 移除USDT后缀，只保留基础币种
+			baseSymbol := strings.TrimSuffix(symbol.Symbol, "USDT")
+			symbols = append(symbols, baseSymbol)
+		}
+	}
+
+	log.Printf("✓ 获取到Aster %d个USDT永续合约币种", len(symbols))
+	return symbols, nil
+}
+
+// GetOITopSymbols 获取Aster的OI Top币种符号
+func (t *AsterTrader) GetOITopSymbols() ([]string, error) {
+	// 为Aster返回一个默认的主流币种列表
+	defaultOITopSymbols := []string{
+		"BTC", "ETH", "SOL", "BNB", "AVAX", "XRP", "ADA", "LINK", "DOGE", "DOT",
+		"MATIC", "TRX", "LTC", "ATOM", "XLM", "ICP", "FIL", "UNI", "ALGO", "SUI",
+	}
+
+	// 确保返回的币种都在Aster支持的币种池中
+	allSymbols, err := t.GetCoinPool()
+	if err != nil {
+		log.Printf("⚠️ 获取Aster币种池失败，使用默认OI Top列表: %v", err)
+		return defaultOITopSymbols, nil
+	}
+
+	// 创建一个映射以快速检查币种是否存在
+	symbolMap := make(map[string]bool)
+	for _, s := range allSymbols {
+		symbolMap[s] = true
+	}
+
+	// 过滤出Aster支持的币种
+	var filteredSymbols []string
+	for _, s := range defaultOITopSymbols {
+		if symbolMap[s] {
+			filteredSymbols = append(filteredSymbols, s)
+		}
+	}
+
+	log.Printf("✓ 获取到Aster %d个OI Top币种", len(filteredSymbols))
+	return filteredSymbols, nil
+}

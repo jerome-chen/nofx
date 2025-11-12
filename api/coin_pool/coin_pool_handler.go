@@ -50,11 +50,17 @@ type OITopItem struct {
 
 // HandleGetCoinPoolAI500 处理获取AI500币池数据的请求
 func (h *CoinPoolHandler) HandleGetCoinPoolAI500(w http.ResponseWriter, r *http.Request) {
-	// 获取AI500币池数据
-	coinList, err := h.service.GetAI500CoinPool()
+	// 获取交易所参数，默认使用binance
+	exchange := r.URL.Query().Get("exchange")
+	if exchange == "" {
+		exchange = "binance"
+	}
+	
+	// 获取AI500币池数据，传递交易所参数
+	coinList, err := h.service.GetAI500CoinPool(exchange)
 	if err != nil {
 		// 返回错误信息，不再使用模拟数据
-		fmt.Printf("Error fetching AI500 coin pool: %v\n", err)
+		fmt.Printf("Error fetching AI500 coin pool for exchange %s: %v\n", exchange, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(fmt.Sprintf(`{\"error\": \"%v\"}`, err)))
 		return
@@ -67,8 +73,9 @@ func (h *CoinPoolHandler) HandleGetCoinPoolAI500(w http.ResponseWriter, r *http.
 	response := map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"coins": coinList,
-			"count": len(coinList),
+			"coins":    coinList,
+			"count":    len(coinList),
+			"exchange": exchange,
 		},
 	}
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -79,11 +86,17 @@ func (h *CoinPoolHandler) HandleGetCoinPoolAI500(w http.ResponseWriter, r *http.
 
 // HandleGetCoinPoolOITop 处理获取持仓量排行榜数据的请求
 func (h *CoinPoolHandler) HandleGetCoinPoolOITop(w http.ResponseWriter, r *http.Request) {
-	// 获取持仓量排行榜数据
-	coinList, err := h.service.GetOITopCoinPool()
+	// 获取交易所参数，默认使用binance
+	exchange := r.URL.Query().Get("exchange")
+	if exchange == "" {
+		exchange = "binance"
+	}
+	
+	// 获取持仓量排行榜数据，传递交易所参数
+	coinList, err := h.service.GetOITopCoinPool(exchange)
 	if err != nil {
 		// 返回错误信息，不再使用模拟数据
-		fmt.Printf("Error fetching OI top coin pool: %v\n", err)
+		fmt.Printf("Error fetching OI top coin pool for exchange %s: %v\n", exchange, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(fmt.Sprintf(`{\"error\": \"%v\"}`, err)))
 		return
@@ -98,7 +111,7 @@ func (h *CoinPoolHandler) HandleGetCoinPoolOITop(w http.ResponseWriter, r *http.
 		"data": map[string]interface{}{
 			"positions": coinList,
 			"count":     len(coinList),
-			"exchange":  "binance", // 设置默认交易所
+			"exchange":  exchange, // 使用传入的交易所参数
 			"time_range": "1h",    // 设置默认时间范围
 		},
 	}

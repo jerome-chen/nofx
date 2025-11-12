@@ -607,6 +607,58 @@ func (t *HyperliquidTrader) FormatQuantity(symbol string, quantity float64) (str
 	return fmt.Sprintf(formatStr, quantity), nil
 }
 
+// GetCoinPool 获取Hyperliquid支持的币种池
+func (t *HyperliquidTrader) GetCoinPool() ([]string, error) {
+	// 获取Hyperliquid meta信息，其中包含交易对列表
+	meta, err := t.exchange.Info().Meta(t.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("获取Hyperliquid meta信息失败: %w", err)
+	}
+
+	// 从meta信息中提取交易对
+	var symbols []string
+	for _, coin := range meta.Universe {
+		// Hyperliquid直接使用基础币种作为符号
+		symbols = append(symbols, coin.Name)
+	}
+
+	log.Printf("✓ 获取到Hyperliquid %d个币种", len(symbols))
+	return symbols, nil
+}
+
+// GetOITopSymbols 获取Hyperliquid的OI Top币种符号
+func (t *HyperliquidTrader) GetOITopSymbols() ([]string, error) {
+	// 为Hyperliquid返回一个默认的主流币种列表
+	defaultOITopSymbols := []string{
+		"BTC", "ETH", "SOL", "BNB", "AVAX", "DOGE", "LINK", "XRP", "ADA", "DOT",
+		"MATIC", "UNI", "TRX", "LTC", "ATOM", "XLM", "SUI", "ICP", "FIL", "ALGO",
+	}
+
+	// 确保返回的币种都在Hyperliquid支持的币种池中
+	allSymbols, err := t.GetCoinPool()
+	if err != nil {
+		log.Printf("⚠️ 获取Hyperliquid币种池失败，使用默认OI Top列表: %v", err)
+		return defaultOITopSymbols, nil
+	}
+
+	// 创建一个映射以快速检查币种是否存在
+	symbolMap := make(map[string]bool)
+	for _, s := range allSymbols {
+		symbolMap[s] = true
+	}
+
+	// 过滤出Hyperliquid支持的币种
+	var filteredSymbols []string
+	for _, s := range defaultOITopSymbols {
+		if symbolMap[s] {
+			filteredSymbols = append(filteredSymbols, s)
+		}
+	}
+
+	log.Printf("✓ 获取到Hyperliquid %d个OI Top币种", len(filteredSymbols))
+	return filteredSymbols, nil
+}
+
 // getSzDecimals 获取币种的数量精度
 func (t *HyperliquidTrader) getSzDecimals(coin string) int {
 	if t.meta == nil {

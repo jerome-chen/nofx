@@ -320,7 +320,7 @@ func main() {
 		
 		if coinPoolAPIURL != "" || oiTopAPIURL != "" {
 			// 使用合并的AI500和OI Top币种池
-			mergedPool, err := pool.GetMergedCoinPool(20) // 获取评分前20的AI500币种和全部OI Top币种
+			mergedPool, err := pool.GetMergedCoinPool("binance", 20) // 获取评分前20的AI500币种和全部OI Top币种
 			if err != nil {
 				log.Printf("⚠️ 获取合并币种池失败: %v，回退到自定义币种", err)
 				tradingCoins = database.GetCustomCoins()

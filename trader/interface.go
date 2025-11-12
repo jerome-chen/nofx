@@ -41,4 +41,10 @@ type Trader interface {
 
 	// FormatQuantity 格式化数量到正确的精度
 	FormatQuantity(symbol string, quantity float64) (string, error)
+
+	// GetCoinPool 获取交易所支持的币种池
+	GetCoinPool() ([]string, error)
+
+	// GetOITopSymbols 获取交易所的OI Top币种符号
+	GetOITopSymbols() ([]string, error)
 }

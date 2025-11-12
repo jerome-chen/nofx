@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -579,7 +580,7 @@ func calculatePrecision(stepSize string) int {
 // trimTrailingZeros 去除尾部的0
 func trimTrailingZeros(s string) string {
 	// 如果没有小数点，直接返回
-	if !stringContains(s, ".") {
+	if !contains(s, ".") {
 		return s
 	}
 
@@ -609,15 +610,66 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 }
 
 // 辅助函数
+// contains 检查字符串是否包含子字符串（不区分大小写）
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && stringContains(s, substr)
+	upperS := strings.ToUpper(s)
+	upperSubstr := strings.ToUpper(substr)
+	return strings.Contains(upperS, upperSubstr)
 }
 
-func stringContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
+// GetCoinPool 获取币安支持的币种池
+func (t *FuturesTrader) GetCoinPool() ([]string, error) {
+	// 从币安API获取所有交易对
+	exchangeInfo, err := t.client.NewExchangeInfoService().Do(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("获取币安交易对信息失败: %w", err)
+	}
+
+	// 过滤出USDT永续合约交易对
+	var symbols []string
+	for _, symbol := range exchangeInfo.Symbols {
+		// 检查是否为USDT交易对且是永续合约
+		if symbol.QuoteAsset == "USDT" && contains(string(symbol.ContractType), "PERPETUAL") {
+			// 移除USDT后缀，只保留基础币种
+			baseSymbol := strings.TrimSuffix(symbol.Symbol, "USDT")
+			symbols = append(symbols, baseSymbol)
 		}
 	}
-	return false
+
+	log.Printf("✓ 获取到币安%d个USDT永续合约币种", len(symbols))
+	return symbols, nil
+}
+
+// GetOITopSymbols 获取币安的OI Top币种符号
+func (t *FuturesTrader) GetOITopSymbols() ([]string, error) {
+	// 这里可以调用专门的OI数据API或使用现有的GetCoinPool方法作为基础
+	// 对于币安，我们可以返回一个默认的主流币种列表
+	defaultOITopSymbols := []string{
+		"BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOT", "DOGE", "AVAX", "UNI",
+		"LINK", "LTC", "TRX", "MATIC", "ATOM", "XLM", "ICP", "FIL", "ALGO", "AXS",
+	}
+
+	// 确保返回的币种都在币安支持的币种池中
+	allSymbols, err := t.GetCoinPool()
+	if err != nil {
+		log.Printf("⚠️ 获取币安币种池失败，使用默认OI Top列表: %v", err)
+		return defaultOITopSymbols, nil
+	}
+
+	// 创建一个映射以快速检查币种是否存在
+	symbolMap := make(map[string]bool)
+	for _, s := range allSymbols {
+		symbolMap[s] = true
+	}
+
+	// 过滤出币安支持的币种
+	var filteredSymbols []string
+	for _, s := range defaultOITopSymbols {
+		if symbolMap[s] {
+			filteredSymbols = append(filteredSymbols, s)
+		}
+	}
+
+	log.Printf("✓ 获取到币安%d个OI Top币种", len(filteredSymbols))
+	return filteredSymbols, nil
 }
