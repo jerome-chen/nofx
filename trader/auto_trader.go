@@ -326,7 +326,7 @@ func (at *AutoTrader) runCycle() error {
 
 	// 4. 调用AI获取完整决策
 	log.Printf("🤖 正在请求AI分析并决策... [模板: %s]", at.systemPromptTemplate)
-	decision, err := decision.GetFullDecisionWithCustomPrompt(ctx, at.mcpClient, at.customPrompt, at.overrideBasePrompt, at.systemPromptTemplate)
+	decision, err := decision.GetFullDecisionWithCustomPrompt(ctx, at.mcpClient, at.customPrompt, at.overrideBasePrompt, at.systemPromptTemplate, at.exchange)
 
 	// 即使有错误，也保存思维链、决策和输入prompt（用于debug）
 	if decision != nil {
@@ -789,6 +789,11 @@ func (at *AutoTrader) GetAIModel() string {
 // GetExchange 获取交易所
 func (at *AutoTrader) GetExchange() string {
 	return at.exchange
+}
+
+// GetTradingCoins 获取交易员的交易币种列表
+func (at *AutoTrader) GetTradingCoins() []string {
+	return at.tradingCoins
 }
 
 // SetCustomPrompt 设置自定义交易策略prompt

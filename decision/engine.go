@@ -91,14 +91,14 @@ type FullDecision struct {
 }
 
 // GetFullDecision 获取AI的完整交易决策（批量分析所有币种和持仓）
-func GetFullDecision(ctx *Context, mcpClient *mcp.Client) (*FullDecision, error) {
-	return GetFullDecisionWithCustomPrompt(ctx, mcpClient, "", false, "")
+func GetFullDecision(ctx *Context, mcpClient *mcp.Client, exchange string) (*FullDecision, error) {
+	return GetFullDecisionWithCustomPrompt(ctx, mcpClient, "", false, "", exchange)
 }
 
 // GetFullDecisionWithCustomPrompt 获取AI的完整交易决策（支持自定义prompt和模板选择）
-func GetFullDecisionWithCustomPrompt(ctx *Context, mcpClient *mcp.Client, customPrompt string, overrideBase bool, templateName string) (*FullDecision, error) {
+func GetFullDecisionWithCustomPrompt(ctx *Context, mcpClient *mcp.Client, customPrompt string, overrideBase bool, templateName string, exchange string) (*FullDecision, error) {
 	// 1. 为所有币种获取市场数据
-	if err := fetchMarketDataForContext(ctx); err != nil {
+	if err := fetchMarketDataForContext(ctx, exchange); err != nil {
 		return nil, fmt.Errorf("获取市场数据失败: %w", err)
 	}
 
@@ -125,7 +125,7 @@ func GetFullDecisionWithCustomPrompt(ctx *Context, mcpClient *mcp.Client, custom
 }
 
 // fetchMarketDataForContext 为上下文中的所有币种获取市场数据和OI数据
-func fetchMarketDataForContext(ctx *Context) error {
+func fetchMarketDataForContext(ctx *Context, exchange string) error {
 	ctx.MarketDataMap = make(map[string]*market.Data)
 	ctx.OITopDataMap = make(map[string]*OITopData)
 
@@ -179,7 +179,7 @@ func fetchMarketDataForContext(ctx *Context) error {
 	}
 
 	// 加载OI Top数据（不影响主流程）
-	oiPositions, err := pool.GetOITopPositions()
+	 oiPositions, err := pool.GetOITopPositions(exchange)
 	if err == nil {
 		for _, pos := range oiPositions {
 			// 标准化符号匹配

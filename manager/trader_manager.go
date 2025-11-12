@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"nofx/config"
+	"nofx/market"
 	"nofx/trader"
 	"sort"
 	"strconv"
@@ -23,16 +24,18 @@ type CompetitionCache struct {
 
 // TraderManager 管理多个trader实例
 type TraderManager struct {
-	traders         map[string]*trader.AutoTrader // key: trader ID
-	competitionCache *CompetitionCache
-	mu              sync.RWMutex
+	traders          map[string]*trader.AutoTrader      // key: trader ID
+	exchangesToMonitors map[string]*market.WSMonitor    // key: exchange ID
+	competitionCache  *CompetitionCache
+	mu               sync.RWMutex
 }
 
 // NewTraderManager 创建trader管理器
 func NewTraderManager() *TraderManager {
 	return &TraderManager{
-		traders: make(map[string]*trader.AutoTrader),
-		competitionCache: &CompetitionCache{
+		traders:          make(map[string]*trader.AutoTrader),
+		exchangesToMonitors: make(map[string]*market.WSMonitor),
+		competitionCache:  &CompetitionCache{
 			data: make(map[string]interface{}),
 		},
 	}
@@ -427,8 +430,34 @@ func (tm *TraderManager) GetTraderIDs() []string {
 
 // StartAll 启动所有trader
 func (tm *TraderManager) StartAll() {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
+	tm.mu.Lock()
+	
+	// 收集所有活跃交易所的信息和对应的交易币种
+	exchangeCoins := make(map[string][]string)
+	activeExchanges := make(map[string]bool)
+	
+	for _, t := range tm.traders {
+		exchange := t.GetExchange()
+		activeExchanges[exchange] = true
+		// 收集该交易员的交易币种
+		for _, coin := range t.GetTradingCoins() {
+			exchangeCoins[exchange] = append(exchangeCoins[exchange], coin)
+		}
+	}
+	
+	// 为每个活跃交易所创建并启动WSMonitor实例
+	for exchange := range activeExchanges {
+		// 确保每个交易所只有一个WSMonitor实例
+		if _, exists := tm.exchangesToMonitors[exchange]; !exists {
+			log.Printf("📊 为交易所 %s 创建WebSocket监控实例", exchange)
+			monitor := market.NewWSMonitor(150)
+			tm.exchangesToMonitors[exchange] = monitor
+			// 启动监控，传入该交易所的所有交易币种
+			go monitor.Start(exchangeCoins[exchange])
+		}
+	}
+	
+	tm.mu.Unlock()
 
 	log.Println("🚀 启动所有Trader...")
 	for id, t := range tm.traders {
@@ -441,15 +470,20 @@ func (tm *TraderManager) StartAll() {
 	}
 }
 
-// StopAll 停止所有trader
+// StopAll 停止所有trader和WSMonitor实例
 func (tm *TraderManager) StopAll() {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
 
 	log.Println("⏹  停止所有Trader...")
 	for _, t := range tm.traders {
 		t.Stop()
 	}
+	
+	log.Println("⏹  停止所有WebSocket监控实例...")
+	// 这里可以添加停止WSMonitor的逻辑，如果WSMonitor有Stop方法的话
+	// 目前我们只是清空映射
+	tm.exchangesToMonitors = make(map[string]*market.WSMonitor)
 }
 
 // GetComparisonData 获取对比数据

@@ -8,7 +8,6 @@ import (
 	"nofx/auth"
 	"nofx/config"
 	"nofx/manager"
-	"nofx/market"
 	"nofx/pool"
 	"os"
 	"os/signal"
@@ -319,8 +318,8 @@ func main() {
 		oiTopAPIURL, _ := database.GetSystemConfig("oi_top_api_url")
 		
 		if coinPoolAPIURL != "" || oiTopAPIURL != "" {
-			// 使用合并的AI500和OI Top币种池
-			mergedPool, err := pool.GetMergedCoinPool("binance", 20) // 获取评分前20的AI500币种和全部OI Top币种
+			// 使用合并的AI500和OI Top币种池（暂不指定交易所，将在交易员启动时按交易所获取）
+			mergedPool, err := pool.GetMergedCoinPool("", 20) // 获取评分前20的AI500币种和全部OI Top币种
 			if err != nil {
 				log.Printf("⚠️ 获取合并币种池失败: %v，回退到自定义币种", err)
 				tradingCoins = database.GetCustomCoins()
@@ -349,16 +348,15 @@ func main() {
 		log.Printf("⚠️ 所有配置的币种列表为空，使用默认币种作为最终回退，共%d个币种", len(tradingCoins))
 	}
 	
-	// 启动WSMonitor
-	log.Printf("🚀 启动WebSocket监控器，币种来源: %s, 币种数量: %d", coinSource, len(tradingCoins))
-	go market.NewWSMonitor(150).Start(tradingCoins)
-	//go market.NewWSMonitor(150).Start([]string{}) //这里是一个使用方式 传入空的话 则使用market市场的所有币种
+	// 注意：现在WSMonitor将在交易员启动时按交易所自动创建和管理，无需在这里全局启动
+	log.Printf("📊 币种池初始化完成，币种来源: %s, 币种数量: %d", coinSource, len(tradingCoins))
 	// 设置优雅退出
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// TODO: 启动数据库中配置为运行状态的交易员
-	// traderManager.StartAll()
+	// 启动数据库中配置为运行状态的交易员
+	traderManager.StartAll()
+	log.Printf("✅ 交易员启动流程已触发")
 
 	// 等待退出信号
 	<-sigChan

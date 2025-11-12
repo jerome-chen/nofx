@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -26,7 +25,8 @@ var defaultMainstreamCoins = []string{
 
 // CoinPoolConfig 币种池配置
 type CoinPoolConfig struct {
-	APIURL          string
+	APIURL          string            // 全局默认API URL
+	ExchangeAPIURLs map[string]string // 交易所特定的API URL映射
 	Timeout         time.Duration
 	CacheDir        string
 	UseDefaultCoins bool // 是否使用默认主流币种
@@ -34,6 +34,7 @@ type CoinPoolConfig struct {
 
 var coinPoolConfig = CoinPoolConfig{
 	APIURL:          "",
+	ExchangeAPIURLs: make(map[string]string), // 初始化交易所API URL映射
 	Timeout:         30 * time.Second, // 增加到30秒
 	CacheDir:        "coin_pool_cache",
 	UseDefaultCoins: false, // 默认不使用
@@ -69,13 +70,31 @@ type CoinPoolAPIResponse struct {
 }
 
 // SetCoinPoolAPI 设置币种池API
-func SetCoinPoolAPI(apiURL string) {
-	coinPoolConfig.APIURL = apiURL
+// 如果提供exchange参数，则设置特定交易所的API URL；否则设置全局默认API URL
+func SetCoinPoolAPI(apiURL string, exchange ...string) {
+	if len(exchange) > 0 && exchange[0] != "" {
+		// 设置特定交易所的API URL
+		coinPoolConfig.ExchangeAPIURLs[exchange[0]] = apiURL
+		log.Printf("✓ 已设置交易所 '%s' 的币种池API URL: %s", exchange[0], apiURL)
+	} else {
+		// 设置全局默认API URL
+		coinPoolConfig.APIURL = apiURL
+		log.Printf("✓ 已设置全局币种池API URL: %s", apiURL)
+	}
 }
 
 // SetOITopAPI 设置OI Top API
-func SetOITopAPI(apiURL string) {
-	oiTopConfig.APIURL = apiURL
+// 如果提供exchange参数，则设置特定交易所的API URL；否则设置全局默认API URL
+func SetOITopAPI(apiURL string, exchange ...string) {
+	if len(exchange) > 0 && exchange[0] != "" {
+		// 设置特定交易所的API URL
+		oiTopConfig.ExchangeAPIURLs[exchange[0]] = apiURL
+		log.Printf("✓ 已设置交易所 '%s' 的OI Top API URL: %s", exchange[0], apiURL)
+	} else {
+		// 设置全局默认API URL
+		oiTopConfig.APIURL = apiURL
+		log.Printf("✓ 已设置全局OI Top API URL: %s", apiURL)
+	}
 }
 
 // SetUseDefaultCoins 设置是否使用默认主流币种
@@ -92,16 +111,16 @@ func SetDefaultCoins(coins []string) {
 }
 
 // GetCoinPool 获取币种池列表（带重试和缓存机制）
-func GetCoinPool() ([]CoinInfo, error) {
+func GetCoinPool(exchange string) ([]CoinInfo, error) {
 	// 优先检查是否启用默认币种列表
 	if coinPoolConfig.UseDefaultCoins {
-		log.Printf("✓ 已启用默认主流币种列表")
+		log.Printf("✓ 已启用默认主流币种列表 (exchange: %s)", exchange)
 		return convertSymbolsToCoins(defaultMainstreamCoins), nil
 	}
 
 	// 检查API URL是否配置
-	if strings.TrimSpace(coinPoolConfig.APIURL) == "" {
-		log.Printf("⚠️  未配置币种池API URL，使用默认主流币种列表")
+	if getExchangeAPIURL(exchange) == "" {
+		log.Printf("⚠️  未配置币种池API URL for exchange: %s，使用默认主流币种列表", exchange)
 		return convertSymbolsToCoins(defaultMainstreamCoins), nil
 	}
 
@@ -111,17 +130,17 @@ func GetCoinPool() ([]CoinInfo, error) {
 	// 尝试从API获取
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if attempt > 1 {
-			log.Printf("⚠️  第%d次重试获取币种池（共%d次）...", attempt, maxRetries)
+			log.Printf("⚠️  第%d次重试获取币种池（共%d次）... (exchange: %s)", attempt, maxRetries, exchange)
 			time.Sleep(2 * time.Second) // 重试前等待2秒
 		}
 
-		coins, err := fetchCoinPool()
+		coins, err := fetchCoinPool(exchange)
 		if err == nil {
 			if attempt > 1 {
 				log.Printf("✓ 第%d次重试成功", attempt)
 			}
 			// 成功获取后保存到缓存
-			if err := saveCoinPoolCache(coins); err != nil {
+			if err := saveCoinPoolCache(exchange, coins); err != nil {
 				log.Printf("⚠️  保存币种池缓存失败: %v", err)
 			}
 			return coins, nil
@@ -132,29 +151,41 @@ func GetCoinPool() ([]CoinInfo, error) {
 	}
 
 	// API获取失败，尝试使用缓存
-	log.Printf("⚠️  API请求全部失败，尝试使用历史缓存数据...")
-	cachedCoins, err := loadCoinPoolCache()
+	log.Printf("⚠️  API请求全部失败，尝试使用历史缓存数据... (exchange: %s)", exchange)
+	cachedCoins, err := loadCoinPoolCache(exchange)
 	if err == nil {
-		log.Printf("✓ 使用历史缓存数据（共%d个币种）", len(cachedCoins))
+		log.Printf("✓ 使用历史缓存数据（共%d个币种） for exchange: %s", len(cachedCoins), exchange)
 		return cachedCoins, nil
 	}
 
 	// 缓存也失败，使用默认主流币种
-	log.Printf("⚠️  无法加载缓存数据（最后错误: %v），使用默认主流币种列表", lastErr)
+	log.Printf("⚠️  无法加载缓存数据（最后错误: %v），使用默认主流币种列表 for exchange: %s", lastErr, exchange)
 	return convertSymbolsToCoins(defaultMainstreamCoins), nil
 }
 
+// getExchangeAPIURL 获取特定交易所的API URL
+func getExchangeAPIURL(exchange string) string {
+	if exchange == "" {
+		return coinPoolConfig.APIURL
+	}
+	if url, exists := coinPoolConfig.ExchangeAPIURLs[exchange]; exists {
+		return url
+	}
+	return coinPoolConfig.APIURL // 默认使用全局API URL
+}
+
 // fetchCoinPool 实际执行币种池请求
-func fetchCoinPool() ([]CoinInfo, error) {
-	log.Printf("🔄 正在请求AI500币种池...")
+func fetchCoinPool(exchange string) ([]CoinInfo, error) {
+	apiURL := getExchangeAPIURL(exchange)
+	log.Printf("🔄 正在请求AI500币种池... (exchange: %s, url: %s)", exchange, apiURL)
 
 	client := &http.Client{
 		Timeout: coinPoolConfig.Timeout,
 	}
 
-	resp, err := client.Get(coinPoolConfig.APIURL)
+	resp, err := client.Get(apiURL)
 	if err != nil {
-		return nil, fmt.Errorf("请求币种池API失败: %w", err)
+		return nil, fmt.Errorf("请求币种池API失败 (exchange: %s): %w", exchange, err)
 	}
 	defer resp.Body.Close()
 
@@ -192,7 +223,7 @@ func fetchCoinPool() ([]CoinInfo, error) {
 }
 
 // saveCoinPoolCache 保存币种池到缓存文件
-func saveCoinPoolCache(coins []CoinInfo) error {
+func saveCoinPoolCache(exchange string, coins []CoinInfo) error {
 	// 确保缓存目录存在
 	if err := os.MkdirAll(coinPoolConfig.CacheDir, 0755); err != nil {
 		return fmt.Errorf("创建缓存目录失败: %w", err)
@@ -209,22 +240,41 @@ func saveCoinPoolCache(coins []CoinInfo) error {
 		return fmt.Errorf("序列化缓存数据失败: %w", err)
 	}
 
-	cachePath := filepath.Join(coinPoolConfig.CacheDir, "latest.json")
+	// 按交易所命名缓存文件
+	cacheFilename := "latest.json"
+	if exchange != "" {
+		cacheFilename = fmt.Sprintf("latest_%s.json", exchange)
+	}
+	cachePath := filepath.Join(coinPoolConfig.CacheDir, cacheFilename)
 	if err := ioutil.WriteFile(cachePath, data, 0644); err != nil {
 		return fmt.Errorf("写入缓存文件失败: %w", err)
 	}
 
-	log.Printf("💾 已保存币种池缓存（%d个币种）", len(coins))
+	log.Printf("💾 已保存币种池缓存（%d个币种） for exchange: %s", len(coins), exchange)
 	return nil
 }
 
 // loadCoinPoolCache 从缓存文件加载币种池
-func loadCoinPoolCache() ([]CoinInfo, error) {
-	cachePath := filepath.Join(coinPoolConfig.CacheDir, "latest.json")
+func loadCoinPoolCache(exchange string) ([]CoinInfo, error) {
+	// 优先尝试使用交易所特定的缓存文件
+	cacheFilename := "latest.json"
+	if exchange != "" {
+		cacheFilename = fmt.Sprintf("latest_%s.json", exchange)
+	}
+	cachePath := filepath.Join(coinPoolConfig.CacheDir, cacheFilename)
 
 	// 检查文件是否存在
 	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("缓存文件不存在")
+		// 如果特定交易所的缓存不存在，尝试使用默认缓存
+		if exchange != "" {
+			log.Printf("⚠️  特定交易所缓存不存在，尝试使用默认缓存: %s", exchange)
+			cachePath = filepath.Join(coinPoolConfig.CacheDir, "latest.json")
+			if _, err := os.Stat(cachePath); os.IsNotExist(err) {
+				return nil, fmt.Errorf("缓存文件不存在: %s", cachePath)
+			}
+		} else {
+			return nil, fmt.Errorf("缓存文件不存在: %s", cachePath)
+		}
 	}
 
 	data, err := ioutil.ReadFile(cachePath)
@@ -240,19 +290,20 @@ func loadCoinPoolCache() ([]CoinInfo, error) {
 	// 检查缓存年龄
 	cacheAge := time.Since(cache.FetchedAt)
 	if cacheAge > 24*time.Hour {
-		log.Printf("⚠️  缓存数据较旧（%.1f小时前），但仍可使用", cacheAge.Hours())
+		log.Printf("⚠️  缓存数据较旧（%.1f小时前），但仍可使用 for exchange: %s", cacheAge.Hours(), exchange)
 	} else {
-		log.Printf("📂 缓存数据时间: %s（%.1f分钟前）",
+		log.Printf("📂 缓存数据时间: %s（%.1f分钟前） for exchange: %s",
 			cache.FetchedAt.Format("2006-01-02 15:04:05"),
-			cacheAge.Minutes())
+			cacheAge.Minutes(),
+			exchange)
 	}
 
 	return cache.Coins, nil
 }
 
 // GetAvailableCoins 获取可用的币种列表（过滤不可用的）
-func GetAvailableCoins() ([]string, error) {
-	coins, err := GetCoinPool()
+func GetAvailableCoins(exchange string) ([]string, error) {
+	coins, err := GetCoinPool(exchange)
 	if err != nil {
 		return nil, err
 	}
@@ -267,15 +318,16 @@ func GetAvailableCoins() ([]string, error) {
 	}
 
 	if len(symbols) == 0 {
-		return nil, fmt.Errorf("没有可用的币种")
+		return nil, fmt.Errorf("没有可用的币种 for exchange: %s", exchange)
 	}
 
+	log.Printf("✓ 获取到%d个可用币种 for exchange: %s", len(symbols), exchange)
 	return symbols, nil
 }
 
 // GetTopRatedCoins 获取评分最高的N个币种（按评分从大到小排序）
-func GetTopRatedCoins(limit int) ([]string, error) {
-	coins, err := GetCoinPool()
+func GetTopRatedCoins(exchange string, limit int) ([]string, error) {
+	coins, err := GetCoinPool(exchange)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +341,7 @@ func GetTopRatedCoins(limit int) ([]string, error) {
 	}
 
 	if len(availableCoins) == 0 {
-		return nil, fmt.Errorf("没有可用的币种")
+		return nil, fmt.Errorf("没有可用的币种 for exchange: %s", exchange)
 	}
 
 	// 按Score降序排序（冒泡排序）
@@ -409,20 +461,33 @@ type OITopCache struct {
 }
 
 var oiTopConfig = struct {
-	APIURL   string
-	Timeout  time.Duration
-	CacheDir string
+	APIURL          string            // 全局默认API URL
+	ExchangeAPIURLs map[string]string // 交易所特定的API URL映射
+	Timeout         time.Duration
+	CacheDir        string
 }{
-	APIURL:   "",
-	Timeout:  30 * time.Second,
-	CacheDir: "coin_pool_cache",
+	APIURL:          "",
+	ExchangeAPIURLs: make(map[string]string), // 初始化交易所API URL映射
+	Timeout:         30 * time.Second,
+	CacheDir:        "coin_pool_cache",
+}
+
+// getExchangeOITopAPIURL 获取特定交易所的OI Top API URL
+func getExchangeOITopAPIURL(exchange string) string {
+	if exchange == "" {
+		return oiTopConfig.APIURL
+	}
+	if url, exists := oiTopConfig.ExchangeAPIURLs[exchange]; exists {
+		return url
+	}
+	return oiTopConfig.APIURL // 默认使用全局API URL
 }
 
 // GetOITopPositions 获取持仓量增长Top20数据（带重试和缓存）
-func GetOITopPositions() ([]OIPosition, error) {
+func GetOITopPositions(exchange string) ([]OIPosition, error) {
 	// 检查API URL是否配置
-	if strings.TrimSpace(oiTopConfig.APIURL) == "" {
-		log.Printf("⚠️  未配置OI Top API URL，跳过OI Top数据获取")
+	if getExchangeOITopAPIURL(exchange) == "" {
+		log.Printf("⚠️  未配置OI Top API URL for exchange: %s，跳过OI Top数据获取", exchange)
 		return []OIPosition{}, nil // 返回空列表，不是错误
 	}
 
@@ -432,17 +497,17 @@ func GetOITopPositions() ([]OIPosition, error) {
 	// 尝试从API获取
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if attempt > 1 {
-			log.Printf("⚠️  第%d次重试获取OI Top数据（共%d次）...", attempt, maxRetries)
+			log.Printf("⚠️  第%d次重试获取OI Top数据（共%d次）... (exchange: %s)", attempt, maxRetries, exchange)
 			time.Sleep(2 * time.Second)
 		}
 
-		positions, err := fetchOITop()
+		positions, err := fetchOITop(exchange)
 		if err == nil {
 			if attempt > 1 {
 				log.Printf("✓ 第%d次重试成功", attempt)
 			}
 			// 成功获取后保存到缓存
-			if err := saveOITopCache(positions); err != nil {
+			if err := saveOITopCache(exchange, positions); err != nil {
 				log.Printf("⚠️  保存OI Top缓存失败: %v", err)
 			}
 			return positions, nil
@@ -453,29 +518,30 @@ func GetOITopPositions() ([]OIPosition, error) {
 	}
 
 	// API获取失败，尝试使用缓存
-	log.Printf("⚠️  OI Top API请求全部失败，尝试使用历史缓存数据...")
-	cachedPositions, err := loadOITopCache()
+	log.Printf("⚠️  OI Top API请求全部失败，尝试使用历史缓存数据... (exchange: %s)", exchange)
+	cachedPositions, err := loadOITopCache(exchange)
 	if err == nil {
-		log.Printf("✓ 使用历史OI Top缓存数据（共%d个币种）", len(cachedPositions))
+		log.Printf("✓ 使用历史OI Top缓存数据（共%d个币种） for exchange: %s", len(cachedPositions), exchange)
 		return cachedPositions, nil
 	}
 
 	// 缓存也失败，返回空列表（OI Top是可选的）
-	log.Printf("⚠️  无法加载OI Top缓存数据（最后错误: %v），跳过OI Top数据", lastErr)
+	log.Printf("⚠️  无法加载OI Top缓存数据（最后错误: %v），跳过OI Top数据 for exchange: %s", lastErr, exchange)
 	return []OIPosition{}, nil
 }
 
 // fetchOITop 实际执行OI Top请求
-func fetchOITop() ([]OIPosition, error) {
-	log.Printf("🔄 正在请求OI Top数据...")
+func fetchOITop(exchange string) ([]OIPosition, error) {
+	apiURL := getExchangeOITopAPIURL(exchange)
+	log.Printf("🔄 正在请求OI Top数据... (exchange: %s, url: %s)", exchange, apiURL)
 
 	client := &http.Client{
 		Timeout: oiTopConfig.Timeout,
 	}
 
-	resp, err := client.Get(oiTopConfig.APIURL)
+	resp, err := client.Get(apiURL)
 	if err != nil {
-		return nil, fmt.Errorf("请求OI Top API失败: %w", err)
+		return nil, fmt.Errorf("请求OI Top API失败 (exchange: %s): %w", exchange, err)
 	}
 	defer resp.Body.Close()
 
@@ -508,7 +574,7 @@ func fetchOITop() ([]OIPosition, error) {
 }
 
 // saveOITopCache 保存OI Top数据到缓存
-func saveOITopCache(positions []OIPosition) error {
+func saveOITopCache(exchange string, positions []OIPosition) error {
 	if err := os.MkdirAll(oiTopConfig.CacheDir, 0755); err != nil {
 		return fmt.Errorf("创建缓存目录失败: %w", err)
 	}
@@ -524,21 +590,41 @@ func saveOITopCache(positions []OIPosition) error {
 		return fmt.Errorf("序列化OI Top缓存数据失败: %w", err)
 	}
 
-	cachePath := filepath.Join(oiTopConfig.CacheDir, "oi_top_latest.json")
+	// 按交易所命名缓存文件
+	cacheFilename := "oi_top_latest.json"
+	if exchange != "" {
+		cacheFilename = fmt.Sprintf("oi_top_latest_%s.json", exchange)
+	}
+	cachePath := filepath.Join(oiTopConfig.CacheDir, cacheFilename)
 	if err := ioutil.WriteFile(cachePath, data, 0644); err != nil {
 		return fmt.Errorf("写入OI Top缓存文件失败: %w", err)
 	}
 
-	log.Printf("💾 已保存OI Top缓存（%d个币种）", len(positions))
+	log.Printf("💾 已保存OI Top缓存（%d个币种） for exchange: %s", len(positions), exchange)
 	return nil
 }
 
 // loadOITopCache 从缓存加载OI Top数据
-func loadOITopCache() ([]OIPosition, error) {
-	cachePath := filepath.Join(oiTopConfig.CacheDir, "oi_top_latest.json")
+func loadOITopCache(exchange string) ([]OIPosition, error) {
+	// 优先尝试使用交易所特定的缓存文件
+	cacheFilename := "oi_top_latest.json"
+	if exchange != "" {
+		cacheFilename = fmt.Sprintf("oi_top_latest_%s.json", exchange)
+	}
+	cachePath := filepath.Join(oiTopConfig.CacheDir, cacheFilename)
 
+	// 检查文件是否存在
 	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("OI Top缓存文件不存在")
+		// 如果特定交易所的缓存不存在，尝试使用默认缓存
+		if exchange != "" {
+			log.Printf("⚠️  特定交易所缓存不存在，尝试使用默认缓存: %s", exchange)
+			cachePath = filepath.Join(oiTopConfig.CacheDir, "oi_top_latest.json")
+			if _, err := os.Stat(cachePath); os.IsNotExist(err) {
+				return nil, fmt.Errorf("缓存文件不存在: %s", cachePath)
+			}
+		} else {
+			return nil, fmt.Errorf("缓存文件不存在: %s", cachePath)
+		}
 	}
 
 	data, err := ioutil.ReadFile(cachePath)
@@ -553,19 +639,24 @@ func loadOITopCache() ([]OIPosition, error) {
 
 	cacheAge := time.Since(cache.FetchedAt)
 	if cacheAge > 24*time.Hour {
-		log.Printf("⚠️  OI Top缓存数据较旧（%.1f小时前），但仍可使用", cacheAge.Hours())
+		log.Printf("⚠️  OI Top缓存数据较旧（%.1f小时前），但仍可使用 for exchange: %s", cacheAge.Hours(), exchange)
 	} else {
-		log.Printf("📂 OI Top缓存数据时间: %s（%.1f分钟前）",
+		log.Printf("📂 OI Top缓存数据时间: %s（%.1f分钟前） for exchange: %s",
 			cache.FetchedAt.Format("2006-01-02 15:04:05"),
-			cacheAge.Minutes())
+			cacheAge.Minutes(),
+			exchange)
 	}
 
 	return cache.Positions, nil
 }
 
 // GetOITopSymbols 获取OI Top的币种符号列表
-func GetOITopSymbols() ([]string, error) {
-	positions, err := GetOITopPositions()
+func GetOITopSymbols(exchange ...string) ([]string, error) {
+	ex := ""
+	if len(exchange) > 0 {
+		ex = exchange[0]
+	}
+	positions, err := GetOITopPositions(ex)
 	if err != nil {
 		return nil, err
 	}
@@ -595,14 +686,14 @@ func GetMergedCoinPool(exchange string, ai500Limit int) (*MergedCoinPool, error)
 	}
 	
 	// 1. 获取AI500数据
-	ai500TopSymbols, err := GetTopRatedCoins(ai500Limit)
+	ai500TopSymbols, err := GetTopRatedCoins(exchange, ai500Limit)
 	if err != nil {
 		log.Printf("⚠️  获取%s交易所AI500数据失败: %v", exchange, err)
 		ai500TopSymbols = []string{} // 失败时用空列表
 	}
 
 	// 2. 获取OI Top数据
-	oiTopSymbols, err := GetOITopSymbols()
+	oiTopSymbols, err := GetOITopSymbols(exchange)
 	if err != nil {
 		log.Printf("⚠️  获取%s交易所OI Top数据失败: %v", exchange, err)
 		oiTopSymbols = []string{} // 失败时用空列表
@@ -633,8 +724,8 @@ func GetMergedCoinPool(exchange string, ai500Limit int) (*MergedCoinPool, error)
 	}
 
 	// 获取完整数据
-	ai500Coins, _ := GetCoinPool()
-	oiTopPositions, _ := GetOITopPositions()
+	ai500Coins, _ := GetCoinPool(exchange)
+	oiTopPositions, _ := GetOITopPositions(exchange)
 
 	merged := &MergedCoinPool{
 		AI500Coins:    ai500Coins,
