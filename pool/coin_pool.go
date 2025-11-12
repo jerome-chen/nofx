@@ -680,23 +680,33 @@ type MergedCoinPool struct {
 
 // GetMergedCoinPool 获取合并后的币种池（AI500 + OI Top，去重）
 func GetMergedCoinPool(exchange string, ai500Limit int) (*MergedCoinPool, error) {
-	// 确保exchange参数有效
-	if exchange == "" {
-		exchange = "binance"
-	}
-	
 	// 1. 获取AI500数据
-	ai500TopSymbols, err := GetTopRatedCoins(exchange, ai500Limit)
-	if err != nil {
-		log.Printf("⚠️  获取%s交易所AI500数据失败: %v", exchange, err)
-		ai500TopSymbols = []string{} // 失败时用空列表
+	var ai500TopSymbols []string
+	var err error
+	
+	// 只有当指定了交易所时才获取特定交易所的数据
+	if exchange != "" {
+		ai500TopSymbols, err = GetTopRatedCoins(exchange, ai500Limit)
+		if err != nil {
+			log.Printf("⚠️  获取%s交易所AI500数据失败: %v", exchange, err)
+			ai500TopSymbols = []string{} // 失败时用空列表
+		}
+	} else {
+		// 如果没有指定交易所，返回空列表
+		ai500TopSymbols = []string{}
+		log.Printf("📊 未指定交易所，币种池初始化将在交易员启动时按交易所进行")
 	}
 
 	// 2. 获取OI Top数据
-	oiTopSymbols, err := GetOITopSymbols(exchange)
-	if err != nil {
-		log.Printf("⚠️  获取%s交易所OI Top数据失败: %v", exchange, err)
-		oiTopSymbols = []string{} // 失败时用空列表
+	var oiTopSymbols []string
+	if exchange != "" {
+		oiTopSymbols, err = GetOITopSymbols(exchange)
+		if err != nil {
+			log.Printf("⚠️  获取%s交易所OI Top数据失败: %v", exchange, err)
+			oiTopSymbols = []string{} // 失败时用空列表
+		}
+	} else {
+		oiTopSymbols = []string{}
 	}
 
 	// 3. 合并并去重
@@ -724,8 +734,12 @@ func GetMergedCoinPool(exchange string, ai500Limit int) (*MergedCoinPool, error)
 	}
 
 	// 获取完整数据
-	ai500Coins, _ := GetCoinPool(exchange)
-	oiTopPositions, _ := GetOITopPositions(exchange)
+	var ai500Coins []CoinInfo
+	var oiTopPositions []OIPosition
+	if exchange != "" {
+		ai500Coins, _ = GetCoinPool(exchange)
+		oiTopPositions, _ = GetOITopPositions(exchange)
+	}
 
 	merged := &MergedCoinPool{
 		AI500Coins:    ai500Coins,
@@ -734,8 +748,10 @@ func GetMergedCoinPool(exchange string, ai500Limit int) (*MergedCoinPool, error)
 		SymbolSources: symbolSources,
 	}
 
-	log.Printf("📊 %s交易所币种池合并完成: AI500=%d, OI_Top=%d, 总计(去重)=%d",
-		exchange, len(ai500TopSymbols), len(oiTopSymbols), len(allSymbols))
+	if exchange != "" {
+		log.Printf("📊 %s交易所币种池合并完成: AI500=%d, OI_Top=%d, 总计(去重)=%d",
+			exchange, len(ai500TopSymbols), len(oiTopSymbols), len(allSymbols))
+	}
 
 	return merged, nil
 }
