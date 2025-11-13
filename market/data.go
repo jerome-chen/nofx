@@ -404,6 +404,20 @@ func Format(data *Data) string {
 	sb.WriteString("=== 1h indicators ===\n")
 	sb.WriteString(fmt.Sprintf("ema20_1h = %.3f, macd_1h = %.3f, rsi_1h (7 period) = %.3f\n\n",
 		data.CurrentEMA20_1h, data.CurrentMACD_1h, data.CurrentRSI7_1h))
+	
+	// 4小时周期指标 - 添加直接的MACD值输出
+	if data.LongerTermContext != nil && len(data.LongerTermContext.MACDValues) > 0 {
+		sb.WriteString("=== 4h indicators ===\n")
+		// 获取最新的MACD值
+		latestMACD4h := data.LongerTermContext.MACDValues[len(data.LongerTermContext.MACDValues)-1]
+		// 获取最新的RSI14值
+		latestRSI144h := 0.0
+		if len(data.LongerTermContext.RSI14Values) > 0 {
+			latestRSI144h = data.LongerTermContext.RSI14Values[len(data.LongerTermContext.RSI14Values)-1]
+		}
+		sb.WriteString(fmt.Sprintf("ema20_4h = %.3f, macd_4h = %.3f, rsi_14_4h = %.3f\n\n",
+			data.LongerTermContext.EMA20, latestMACD4h, latestRSI144h))
+	}
 
 	sb.WriteString(fmt.Sprintf("In addition, here is the latest %s open interest and funding rate for perps:\n\n",
 		data.Symbol))
