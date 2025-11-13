@@ -205,6 +205,13 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 
 		// 标记需要在系统启动后异步更新币种池
 		needsAsyncUpdate = true
+	} else {
+		// 如果有预定义的交易币种，初始化并立即启动WebSocket监控器
+		if err := wsMonitor.Initialize(tradingCoins); err != nil {
+			log.Printf("⚠️  初始化WebSocket监控器失败: %v", err)
+		}
+		// 立即启动WebSocket监控器
+		go wsMonitor.Start(tradingCoins)
 	}
 
 	// 异步更新币种池（在系统启动后）
