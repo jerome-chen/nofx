@@ -11,31 +11,31 @@ import (
 )
 
 // Get 获取指定代币的市场数据
-func Get(symbol string) (*Data, error) {
+func Get(monitor *WSMonitor, symbol string) (*Data, error) {
 	var klines3m, klines15m, klines1h, klines4h []Kline
 	var err error
 	// 标准化symbol
 	symbol = Normalize(symbol)
 	// 获取3分钟K线数据 (最近10个)
-	klines3m, err = WSMonitorCli.GetCurrentKlines(symbol, "3m") // 多获取一些用于计算
+	klines3m, err = monitor.GetCurrentKlines(symbol, "3m") // 多获取一些用于计算
 	if err != nil {
 		return nil, fmt.Errorf("获取3分钟K线失败: %v", err)
 	}
 
 	// 获取15分钟K线数据
-	klines15m, err = WSMonitorCli.GetCurrentKlines(symbol, "15m")
+	klines15m, err = monitor.GetCurrentKlines(symbol, "15m")
 	if err != nil {
 		return nil, fmt.Errorf("获取15分钟K线失败: %v", err)
 	}
 
 	// 获取1小时K线数据
-	klines1h, err = WSMonitorCli.GetCurrentKlines(symbol, "1h")
+	klines1h, err = monitor.GetCurrentKlines(symbol, "1h")
 	if err != nil {
 		return nil, fmt.Errorf("获取1小时K线失败: %v", err)
 	}
 
 	// 获取4小时K线数据 (最近10个)
-	klines4h, err = WSMonitorCli.GetCurrentKlines(symbol, "4h") // 多获取用于计算指标
+	klines4h, err = monitor.GetCurrentKlines(symbol, "4h") // 多获取用于计算指标
 	if err != nil {
 		return nil, fmt.Errorf("获取4小时K线失败: %v", err)
 	}

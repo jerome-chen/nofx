@@ -33,17 +33,15 @@ type SymbolStats struct {
 	Score            float64 // 综合评分
 }
 
-var WSMonitorCli *WSMonitor
 var subKlineTime = []string{"3m", "15m", "1h", "4h"} // 管理订阅流的K线周期
 
 func NewWSMonitor(batchSize int) *WSMonitor {
-	WSMonitorCli = &WSMonitor{
+	return &WSMonitor{
 		wsClient:       NewWSClient(),
 		combinedClient: NewCombinedStreamsClient(batchSize),
 		alertsChan:     make(chan Alert, 1000),
 		batchSize:      batchSize,
 	}
-	return WSMonitorCli
 }
 
 func (m *WSMonitor) Initialize(coins []string) error {

@@ -66,6 +66,7 @@ type Context struct {
 	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
 	BTCETHLeverage  int                     `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
 	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
+	WSMonitor       *market.WSMonitor       `json:"-"` // WebSocket监控器实例
 }
 
 // Decision AI的交易决策
@@ -154,7 +155,7 @@ func fetchMarketDataForContext(ctx *Context, exchange string) error {
 	}
 
 	for symbol := range symbolSet {
-		data, err := market.Get(symbol)
+		data, err := market.Get(ctx.WSMonitor, symbol)
 		if err != nil {
 			// 单个币种失败不影响整体，只记录错误
 			continue

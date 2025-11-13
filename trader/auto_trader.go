@@ -85,6 +85,7 @@ type AutoTrader struct {
 	trader                Trader // 使用Trader接口（支持多平台）
 	mcpClient             *mcp.Client
 	decisionLogger        *logger.DecisionLogger // 决策日志记录器
+	wsMonitor             *market.WSMonitor      // WebSocket监控器实例
 	initialBalance        float64
 	dailyPnL              float64
 	customPrompt          string   // 自定义交易策略prompt
@@ -192,10 +193,66 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 	logDir := fmt.Sprintf("decision_logs/%s", config.ID)
 	decisionLogger := logger.NewDecisionLogger(logDir)
 
+	// 初始化WebSocket监控器
+	wsMonitor := market.NewWSMonitor(10) // 10作为默认的batchSize
+	// 使用交易币种列表初始化监控器
+	tradingCoins := config.TradingCoins
+	needsAsyncUpdate := false // 声明在外部作用域
+	if len(tradingCoins) == 0 {
+		// 优先使用默认币种列表初始化，避免启动时的API依赖
+		tradingCoins = config.DefaultCoins
+		log.Printf("📊 [%s] 初始化阶段使用默认币种列表，共%d个币种", config.Name, len(tradingCoins))
+
+		// 标记需要在系统启动后异步更新币种池
+		needsAsyncUpdate = true
+	}
+
+	// 异步更新币种池（在系统启动后）
 	// 设置默认系统提示词模板
 	systemPromptTemplate := config.SystemPromptTemplate
 	if systemPromptTemplate == "" {
 		systemPromptTemplate = "default" // 默认使用 default 模板
+	}
+
+	if needsAsyncUpdate {
+		// 创建at实例（先于return语句，以便在goroutine中访问）
+		at := &AutoTrader{
+			id:                    config.ID,
+			name:                  config.Name,
+			aiModel:               config.AIModel,
+			exchange:              config.Exchange,
+			config:                config,
+			trader:                trader,
+			mcpClient:             mcpClient,
+			decisionLogger:        decisionLogger,
+			wsMonitor:             wsMonitor,
+			initialBalance:        config.InitialBalance,
+			systemPromptTemplate:  systemPromptTemplate,
+			defaultCoins:          config.DefaultCoins,
+			tradingCoins:          tradingCoins,
+			positionFirstSeenTime: make(map[string]int64),
+		}
+
+		go func(trader *AutoTrader) {
+			// 等待一段时间确保Web服务器已启动
+			time.Sleep(10 * time.Second)
+			log.Printf("🔄 [%s] 异步更新币种池数据...", trader.name)
+			mergedPool, err := pool.GetMergedCoinPool(trader.exchange, 50)
+			if err == nil && len(mergedPool.AllSymbols) > 0 {
+				// 更新交易币种并重启WebSocket监控器
+				if err1 := trader.wsMonitor.Initialize(mergedPool.AllSymbols); err != nil {
+					log.Printf("⚠️  初始化WebSocket监控器失败: %v", err1)
+				}
+				log.Printf("✅ [%s] 成功更新合并币种池，共%d个币种", trader.name, len(mergedPool.AllSymbols))
+				// 更新at实例的tradingCoins字段
+				trader.tradingCoins = mergedPool.AllSymbols
+				go trader.wsMonitor.Start(mergedPool.AllSymbols)
+			} else {
+				log.Printf("❌ [%s] 异步更新币种池失败: %v", trader.name, err)
+			}
+		}(at)
+
+		return at, nil
 	}
 
 	return &AutoTrader{
@@ -207,14 +264,11 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 		trader:                trader,
 		mcpClient:             mcpClient,
 		decisionLogger:        decisionLogger,
+		wsMonitor:             wsMonitor,
 		initialBalance:        config.InitialBalance,
 		systemPromptTemplate:  systemPromptTemplate,
 		defaultCoins:          config.DefaultCoins,
-		tradingCoins:          config.TradingCoins,
-		lastResetTime:         time.Now(),
-		startTime:             time.Now(),
-		callCount:             0,
-		isRunning:             false,
+		tradingCoins:          tradingCoins,
 		positionFirstSeenTime: make(map[string]int64),
 	}, nil
 }
@@ -323,6 +377,15 @@ func (at *AutoTrader) runCycle() error {
 
 	log.Printf("📊 账户净值: %.2f USDT | 可用: %.2f USDT | 持仓: %d",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance, ctx.Account.PositionCount)
+
+	// 检查候选币种是否为空，如果为空则跳过AI决策
+	if len(ctx.CandidateCoins) == 0 {
+		log.Printf("⚠️  候选币种列表为空，跳过AI决策请求")
+		record.Success = false
+		record.ErrorMessage = "候选币种列表为空，无法进行AI决策"
+		at.decisionLogger.LogDecision(record)
+		return nil
+	}
 
 	// 4. 调用AI获取完整决策
 	log.Printf("🤖 正在请求AI分析并决策... [模板: %s]", at.systemPromptTemplate)
@@ -576,7 +639,8 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		},
 		Positions:      positionInfos,
 		CandidateCoins: candidateCoins,
-		Performance:    performance, // 添加历史表现分析
+		Performance:    performance,  // 添加历史表现分析
+		WSMonitor:      at.wsMonitor, // 添加WebSocket监控器实例
 	}
 
 	return ctx, nil
@@ -616,7 +680,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	}
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(at.wsMonitor, decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -675,7 +739,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	}
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(at.wsMonitor, decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -724,7 +788,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	log.Printf("  🔄 平多仓: %s", decision.Symbol)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(at.wsMonitor, decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -750,7 +814,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	log.Printf("  🔄 平空仓: %s", decision.Symbol)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(at.wsMonitor, decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -1033,17 +1097,17 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 			}
 			log.Printf("📋 [%s] 使用数据库默认币种: %d个币种 %v",
 				at.name, len(candidateCoins), at.defaultCoins)
-			
+
 			// 更新tradingCoins字段，确保后续调用GetTradingCoins返回正确列表
 			at.tradingCoins = make([]string, len(at.defaultCoins))
 			copy(at.tradingCoins, at.defaultCoins)
 			log.Printf("✅ 已更新tradingCoins字段为默认币种列表，共 %d 个币种", len(at.tradingCoins))
-			
+
 			return candidateCoins, nil
 		} else {
 			// 如果数据库中没有配置默认币种，则使用AI500+OI Top作为fallback
 			const ai500Limit = 20 // AI500取前20个评分最高的币种
-			
+
 			// 获取交易所信息
 			exchange := at.exchange
 			if exchange == "" {
@@ -1052,7 +1116,9 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 
 			mergedPool, err := pool.GetMergedCoinPool(exchange, ai500Limit)
 			if err != nil {
-				return nil, fmt.Errorf("获取合并币种池失败: %w", err)
+				log.Printf("⚠️  获取合并币种池失败: %v，使用硬编码的核心币种作为备选", err)
+				// 如果获取AI500+OI Top失败，则使用硬编码的核心币种作为最后备选
+				return at.getHardcodedCoreCoins(), nil
 			}
 
 			// 构建候选币种列表（包含来源信息）
@@ -1064,9 +1130,15 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 				})
 			}
 
+			// 检查通过AI500+OI Top获取的币种是否为空
+			if len(candidateCoins) == 0 {
+				log.Printf("⚠️  AI500+OI Top币种列表为空，使用硬编码的核心币种作为备选")
+				return at.getHardcodedCoreCoins(), nil
+			}
+
 			log.Printf("📋 [%s] 数据库无默认币种配置，使用AI500+OI Top: AI500前%d + OI_Top20 = 总计%d个候选币种",
 				at.name, ai500Limit, len(candidateCoins))
-			
+
 			// 更新tradingCoins字段，确保后续调用GetTradingCoins返回正确列表
 			// 从symbol中提取币种名称（去掉USDT后缀）
 			at.tradingCoins = make([]string, 0, len(candidateCoins))
@@ -1076,7 +1148,7 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 				at.tradingCoins = append(at.tradingCoins, coinName)
 			}
 			log.Printf("✅ 已更新tradingCoins字段为AI500+OI Top币种列表，共 %d 个币种", len(at.tradingCoins))
-			
+
 			return candidateCoins, nil
 		}
 	} else {
@@ -1108,4 +1180,28 @@ func normalizeSymbol(symbol string) string {
 	}
 
 	return symbol
+}
+
+// getHardcodedCoreCoins 返回硬编码的核心币种列表，作为最后备选
+func (at *AutoTrader) getHardcodedCoreCoins() []decision.CandidateCoin {
+	// 定义核心主流币种作为最后备选
+	coreCoins := []string{"BTC", "ETH", "BNB", "SOL", "ADA", "XRP", "DOT", "DOGE", "AVAX", "LINK"}
+	var candidateCoins []decision.CandidateCoin
+
+	for _, coin := range coreCoins {
+		symbol := normalizeSymbol(coin)
+		candidateCoins = append(candidateCoins, decision.CandidateCoin{
+			Symbol:  symbol,
+			Sources: []string{"fallback"}, // 标记为备选来源
+		})
+	}
+
+	// 更新tradingCoins字段
+	at.tradingCoins = make([]string, len(coreCoins))
+	copy(at.tradingCoins, coreCoins)
+	log.Printf("📋 [%s] 使用硬编码核心币种作为备选: %d个币种 %v",
+		at.name, len(candidateCoins), coreCoins)
+	log.Printf("✅ 已更新tradingCoins字段为核心币种列表，共 %d 个币种", len(at.tradingCoins))
+
+	return candidateCoins
 }
