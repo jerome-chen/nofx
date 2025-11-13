@@ -164,6 +164,7 @@ func (m *WSMonitor) subscribeSymbol(symbol, st string) []string {
 
 	return streams
 }
+// subscribeAll 订阅所有交易对
 func (m *WSMonitor) subscribeAll() error {
 	// 执行批量订阅
 	log.Println("开始订阅所有交易对...")
@@ -175,8 +176,8 @@ func (m *WSMonitor) subscribeAll() error {
 	for _, st := range subKlineTime {
 		err := m.combinedClient.BatchSubscribeKlines(m.symbols, st)
 		if err != nil {
-			log.Fatalf("❌ 订阅3m K线: %v", err)
-			return err
+			log.Printf("❌ 订阅%v K线: %v", st, err) // 修改为log.Printf，避免程序退出
+			// 不立即返回错误，继续尝试订阅其他时间周期
 		}
 	}
 	log.Println("所有交易对订阅完成")
