@@ -444,7 +444,6 @@ func (t *AsterTrader) GetBalance() (map[string]interface{}, error) {
 	crossUnPnl := 0.0
 
 	for _, bal := range balances {
-		log.Printf("%s 余额: %v", bal["asset"], bal["balance"].(string))
 		if asset, ok := bal["asset"].(string); ok && (asset == "USDT" || asset == "USDF") {
 			if wb, ok := bal["balance"].(string); ok {
 				val, _ := strconv.ParseFloat(wb, 64)
