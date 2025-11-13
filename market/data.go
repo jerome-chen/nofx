@@ -390,24 +390,24 @@ func getFundingRate(symbol string) (float64, error) {
 func Format(data *Data) string {
 	var sb strings.Builder
 
-	// 3分钟周期指标
-	sb.WriteString("=== 3m indicators ===\n")
-	sb.WriteString(fmt.Sprintf("current_price = %.2f, current_ema20 = %.3f, current_macd = %.3f, current_rsi (7 period) = %.3f\n\n",
+	// 3分钟周期指标 - 简化标题和冗余文本
+	sb.WriteString("3m: ")
+	sb.WriteString(fmt.Sprintf("price=%.2f, ema20=%.3f, macd=%.3f, rsi7=%.3f\n",
 		data.CurrentPrice, data.CurrentEMA20, data.CurrentMACD, data.CurrentRSI7))
 
 	// 15分钟周期指标
-	sb.WriteString("=== 15m indicators ===\n")
-	sb.WriteString(fmt.Sprintf("ema20_15m = %.3f, macd_15m = %.3f, rsi_15m (7 period) = %.3f\n\n",
+	sb.WriteString("15m: ")
+	sb.WriteString(fmt.Sprintf("ema20=%.3f, macd=%.3f, rsi7=%.3f\n",
 		data.CurrentEMA20_15m, data.CurrentMACD_15m, data.CurrentRSI7_15m))
 
 	// 1小时周期指标
-	sb.WriteString("=== 1h indicators ===\n")
-	sb.WriteString(fmt.Sprintf("ema20_1h = %.3f, macd_1h = %.3f, rsi_1h (7 period) = %.3f\n\n",
+	sb.WriteString("1h: ")
+	sb.WriteString(fmt.Sprintf("ema20=%.3f, macd=%.3f, rsi7=%.3f\n",
 		data.CurrentEMA20_1h, data.CurrentMACD_1h, data.CurrentRSI7_1h))
 	
-	// 4小时周期指标 - 添加直接的MACD值输出
+	// 4小时周期指标 - 简化标题和冗余文本
 	if data.LongerTermContext != nil && len(data.LongerTermContext.MACDValues) > 0 {
-		sb.WriteString("=== 4h indicators ===\n")
+		sb.WriteString("4h: ")
 		// 获取最新的MACD值
 		latestMACD4h := data.LongerTermContext.MACDValues[len(data.LongerTermContext.MACDValues)-1]
 		// 获取最新的RSI14值
@@ -415,75 +415,129 @@ func Format(data *Data) string {
 		if len(data.LongerTermContext.RSI14Values) > 0 {
 			latestRSI144h = data.LongerTermContext.RSI14Values[len(data.LongerTermContext.RSI14Values)-1]
 		}
-		sb.WriteString(fmt.Sprintf("ema20_4h = %.3f, macd_4h = %.3f, rsi_14_4h = %.3f\n\n",
+		sb.WriteString(fmt.Sprintf("ema20=%.3f, macd=%.3f, rsi14=%.3f\n",
 			data.LongerTermContext.EMA20, latestMACD4h, latestRSI144h))
 	}
 
-	sb.WriteString(fmt.Sprintf("In addition, here is the latest %s open interest and funding rate for perps:\n\n",
-		data.Symbol))
-
+	// 简化合约信息文本
+	sb.WriteString(fmt.Sprintf("%s: ", data.Symbol))
 	if data.OpenInterest != nil {
-		sb.WriteString(fmt.Sprintf("Open Interest: Latest: %.2f Average: %.2f\n\n",
+		sb.WriteString(fmt.Sprintf("oi=%.2f(avg=%.2f), ",
 			data.OpenInterest.Latest, data.OpenInterest.Average))
 	}
+	sb.WriteString(fmt.Sprintf("funding=%.2e\n", data.FundingRate))
 
-	sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))
-
+	// 简化并合并短期指标数组输出
 	if data.IntradaySeries != nil {
-		sb.WriteString("Intraday series (3‑minute intervals, oldest → latest):\n\n")
+		hasIntradayData := false
+		
+		// 只在有数据时添加标题
+		if len(data.IntradaySeries.MidPrices) > 0 || 
+		   len(data.IntradaySeries.EMA20Values) > 0 || 
+		   len(data.IntradaySeries.MACDValues) > 0 || 
+		   len(data.IntradaySeries.RSI7Values) > 0 || 
+		   len(data.IntradaySeries.RSI14Values) > 0 {
+			sb.WriteString("Intraday [old→new]: ")
+			hasIntradayData = true
+		}
 
+		// 合并多个数组输出，减少换行
 		if len(data.IntradaySeries.MidPrices) > 0 {
-			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
+			sb.WriteString(fmt.Sprintf("prices=%s ", formatFloatSlice(data.IntradaySeries.MidPrices)))
 		}
 
 		if len(data.IntradaySeries.EMA20Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.IntradaySeries.EMA20Values)))
+			sb.WriteString(fmt.Sprintf("ema20=%s ", formatFloatSlice(data.IntradaySeries.EMA20Values)))
 		}
 
 		if len(data.IntradaySeries.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
+			sb.WriteString(fmt.Sprintf("macd=%s ", formatFloatSlice(data.IntradaySeries.MACDValues)))
 		}
 
 		if len(data.IntradaySeries.RSI7Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (7‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI7Values)))
+			sb.WriteString(fmt.Sprintf("rsi7=%s ", formatFloatSlice(data.IntradaySeries.RSI7Values)))
 		}
 
 		if len(data.IntradaySeries.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI14Values)))
+			sb.WriteString(fmt.Sprintf("rsi14=%s ", formatFloatSlice(data.IntradaySeries.RSI14Values)))
+		}
+		
+		if hasIntradayData {
+			sb.WriteString("\n")
 		}
 	}
 
+	// 简化长期指标输出
 	if data.LongerTermContext != nil {
-		sb.WriteString("Longer‑term context (4‑hour timeframe):\n\n")
+		hasLongTermData := false
+		
+		// 只在有数据时添加标题
+		if len(data.LongerTermContext.MACDValues) > 0 || 
+		   len(data.LongerTermContext.RSI14Values) > 0 {
+			sb.WriteString("LongTerm [4h]: ")
+			hasLongTermData = true
+		}
 
-		sb.WriteString(fmt.Sprintf("20‑Period EMA: %.3f vs. 50‑Period EMA: %.3f\n\n",
-			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
-
-		sb.WriteString(fmt.Sprintf("3‑Period ATR: %.3f vs. 14‑Period ATR: %.3f\n\n",
-			data.LongerTermContext.ATR3, data.LongerTermContext.ATR14))
-
-		sb.WriteString(fmt.Sprintf("Current Volume: %.3f vs. Average Volume: %.3f\n\n",
+		// 合并EMA和ATR比较
+		sb.WriteString(fmt.Sprintf("ema20=%.3f/ema50=%.3f, atr3=%.3f/atr14=%.3f, vol=%.3f(avg=%.3f) ",
+			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50,
+			data.LongerTermContext.ATR3, data.LongerTermContext.ATR14,
 			data.LongerTermContext.CurrentVolume, data.LongerTermContext.AverageVolume))
 
+		// 合并MACD和RSI数组输出
 		if len(data.LongerTermContext.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.LongerTermContext.MACDValues)))
+			sb.WriteString(fmt.Sprintf("macd=%s ", formatFloatSlice(data.LongerTermContext.MACDValues)))
 		}
 
 		if len(data.LongerTermContext.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.LongerTermContext.RSI14Values)))
+			sb.WriteString(fmt.Sprintf("rsi14=%s ", formatFloatSlice(data.LongerTermContext.RSI14Values)))
+		}
+		
+		if hasLongTermData {
+			sb.WriteString("\n")
 		}
 	}
 
 	return sb.String()
 }
 
-// formatFloatSlice 格式化float64切片为字符串
+// formatFloatSlice 格式化float64切片为字符串，输出更紧凑
 func formatFloatSlice(values []float64) string {
-	strValues := make([]string, len(values))
-	for i, v := range values {
-		strValues[i] = fmt.Sprintf("%.3f", v)
+	// 限制输出元素数量，避免过长的数组表示
+	maxDisplay := 10
+	displayValues := values
+	if len(values) > maxDisplay {
+		// 只显示前几个和最后几个元素
+		displayValues = append(values[:maxDisplay/2], values[len(values)-maxDisplay/2:]...)
 	}
-	return "[" + strings.Join(strValues, ", ") + "]"
+	
+	strValues := make([]string, len(displayValues))
+	for i, v := range displayValues {
+		// 根据数值大小动态调整精度，确保memecoins等小价值数字的精度
+		if math.Abs(v) < 0.01 && v != 0 {
+			// 对于非常小的值（接近0但非0），使用科学计数法以保留精度
+			strValues[i] = fmt.Sprintf("%.6g", v)
+		} else if math.Abs(v) < 1.0 {
+			// 对于小于1的值，使用更高的小数精度
+			strValues[i] = fmt.Sprintf("%.6f", v)
+		} else if math.Abs(v) < 100.0 {
+			// 对于中等大小的值，保持中等精度
+			strValues[i] = fmt.Sprintf("%.4f", v)
+		} else {
+			// 对于较大的值，可以使用较少的小数位
+			strValues[i] = fmt.Sprintf("%.2f", v)
+		}
+	}
+	
+	// 使用更紧凑的分隔符
+	result := "[" + strings.Join(strValues, ",") + "]"
+	
+	// 如果截断了元素，添加指示
+	if len(values) > maxDisplay {
+		result += fmt.Sprintf("(%d total)", len(values))
+	}
+	
+	return result
 }
 
 // Normalize 标准化symbol,确保是USDT交易对
