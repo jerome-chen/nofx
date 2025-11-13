@@ -43,3 +43,5 @@ node_modules/
 web/dist/
 web/.vite/
 web/yarn.lock
+
+__debug_bin*
