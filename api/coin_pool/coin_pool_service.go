@@ -657,28 +657,59 @@ func (s *CoinPoolService) fetchBinance24hTickers() ([]BinanceTicker24h, error) {
 // fetchAster24hTickers 获取Aster交易所24小时行情数据
 func (s *CoinPoolService) fetchAster24hTickers() ([]BinanceTicker24h, error) {
 	url := fmt.Sprintf("https://fapi.asterdex.com/fapi/v1/ticker/24hr")
-	resp, err := http.Get(url)
+
+	// 创建HTTP客户端并设置超时
+	client := &http.Client{
+		Timeout: 15 * time.Second, // 增加超时时间
+	}
+
+	// 创建请求并添加User-Agent头以避免被拒绝
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	// 重试机制
+	maxRetries := 2
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// 指数退避
+			time.Sleep(time.Duration(attempt*1000) * time.Millisecond)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			// 继续尝试，不设置错误变量
+			continue
+		}
+
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+
+			var tickers []BinanceTicker24h
+			err = json.Unmarshal(body, &tickers)
+			if err != nil {
+				return nil, err
+			}
+
+			return tickers, nil
+		}
+
+		// 读取错误响应体
+		errorBody, _ := io.ReadAll(resp.Body)
+		lastErr = fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(errorBody))
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var tickers []BinanceTicker24h
-	err = json.Unmarshal(body, &tickers)
-	if err != nil {
-		return nil, err
-	}
-
-	return tickers, nil
+	// 如果所有尝试都失败，返回最后一个错误
+	return nil, fmt.Errorf("failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // fetchBinanceFuturesTickers 从Binance API获取期货行情数据（用于获取交易对列表和价格信息）

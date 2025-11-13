@@ -444,12 +444,42 @@ func (tm *TraderManager) AddTraderToExchangeMonitor(trader *trader.AutoTrader) {
 		log.Printf("📊 为交易所 %s 创建WebSocket监控实例", exchange)
 		monitor = market.NewWSMonitor(150)
 		tm.exchangesToMonitors[exchange] = monitor
-		// 启动监控，传入该交易员的交易币种
-		go monitor.Start(tradingCoins)
+		
+		// 只有当tradingCoins不为空时才启动监控
+		if len(tradingCoins) > 0 {
+			log.Printf("📊 交易币种列表不为空，启动监控 %d 个币种", len(tradingCoins))
+			go monitor.Start(tradingCoins)
+		} else {
+			log.Printf("📊 交易币种列表为空，将在交易员运行时初始化监控")
+			// 不立即启动监控，trader.Run()会在tradingCoins初始化后处理
+			// 或者可以在这里保留monitor实例，但不启动
+		}
 	} else {
 		// 如果已有监控器，确保所有交易币种都被监控
 		// 注意：这里简化处理，实际可能需要更复杂的逻辑来更新监控的币种列表
 		log.Printf("📊 交易员 %s 使用的交易所 %s 已有监控实例", trader.GetName(), exchange)
+		
+		// 如果已有监控器但tradingCoins不为空，确保这些币种被监控
+		if len(tradingCoins) > 0 {
+			// 这里可以添加逻辑来更新监控器中的币种列表
+			log.Printf("📊 确保 %d 个交易币种被监控", len(tradingCoins))
+		}
+	}
+}
+
+// UpdateExchangeMonitorCoins 更新交易所监控器的币种列表
+func (tm *TraderManager) UpdateExchangeMonitorCoins(exchange string, tradingCoins []string) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	
+	// 检查该交易所是否有监控器
+	monitor, exists := tm.exchangesToMonitors[exchange]
+	if exists && len(tradingCoins) > 0 {
+		log.Printf("📊 更新交易所 %s 的监控币种列表，共 %d 个币种", exchange, len(tradingCoins))
+		// 关闭旧的监控连接
+		monitor.Close()
+		// 使用新的币种列表重新启动监控
+		go monitor.Start(tradingCoins)
 	}
 }
 

@@ -1033,6 +1033,12 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 			}
 			log.Printf("📋 [%s] 使用数据库默认币种: %d个币种 %v",
 				at.name, len(candidateCoins), at.defaultCoins)
+			
+			// 更新tradingCoins字段，确保后续调用GetTradingCoins返回正确列表
+			at.tradingCoins = make([]string, len(at.defaultCoins))
+			copy(at.tradingCoins, at.defaultCoins)
+			log.Printf("✅ 已更新tradingCoins字段为默认币种列表，共 %d 个币种", len(at.tradingCoins))
+			
 			return candidateCoins, nil
 		} else {
 			// 如果数据库中没有配置默认币种，则使用AI500+OI Top作为fallback
@@ -1060,6 +1066,17 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 
 			log.Printf("📋 [%s] 数据库无默认币种配置，使用AI500+OI Top: AI500前%d + OI_Top20 = 总计%d个候选币种",
 				at.name, ai500Limit, len(candidateCoins))
+			
+			// 更新tradingCoins字段，确保后续调用GetTradingCoins返回正确列表
+			// 从symbol中提取币种名称（去掉USDT后缀）
+			at.tradingCoins = make([]string, 0, len(candidateCoins))
+			for _, coin := range candidateCoins {
+				// 移除USDT后缀
+				coinName := strings.TrimSuffix(coin.Symbol, "USDT")
+				at.tradingCoins = append(at.tradingCoins, coinName)
+			}
+			log.Printf("✅ 已更新tradingCoins字段为AI500+OI Top币种列表，共 %d 个币种", len(at.tradingCoins))
+			
 			return candidateCoins, nil
 		}
 	} else {

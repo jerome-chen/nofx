@@ -36,7 +36,7 @@ type CoinPoolConfig struct {
 var coinPoolConfig = CoinPoolConfig{
 	APIURL:          "",
 	ExchangeAPIURLs: make(map[string]string), // 初始化交易所API URL映射
-	Timeout:         30 * time.Second, // 增加到30秒
+	Timeout:         30 * time.Second,        // 增加到30秒
 	CacheDir:        "coin_pool_cache",
 	UseDefaultCoins: false, // 默认不使用
 }
@@ -489,6 +489,14 @@ func getExchangeOITopAPIURL(exchange string) string {
 	if url, exists := oiTopConfig.ExchangeAPIURLs[exchange]; exists {
 		return url
 	}
+	// 在没有特定交易所URL时使用默认APIURL并添加exchange参数
+	if oiTopConfig.APIURL != "" {
+		// 检查URL是否已经包含查询参数
+		if strings.Contains(oiTopConfig.APIURL, "?") {
+			return oiTopConfig.APIURL + "&exchange=" + exchange
+		}
+		return oiTopConfig.APIURL + "?exchange=" + exchange
+	}
 	return oiTopConfig.APIURL // 默认使用全局API URL
 }
 
@@ -692,7 +700,7 @@ func GetMergedCoinPool(exchange string, ai500Limit int) (*MergedCoinPool, error)
 	// 1. 获取AI500数据
 	var ai500TopSymbols []string
 	var err error
-	
+
 	// 只有当指定了交易所时才获取特定交易所的数据
 	if exchange != "" {
 		ai500TopSymbols, err = GetTopRatedCoins(exchange, ai500Limit)
