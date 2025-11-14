@@ -255,26 +255,25 @@ func (m *WSMonitor) processKlineUpdate(symbol string, wsData KlineWSData, _time 
 }
 
 func (m *WSMonitor) GetCurrentKlines(symbol string, _time string) ([]Kline, error) {
+	// 统一将symbol转换为大写
+	upperSymbol := strings.ToUpper(symbol)
 	// 对每一个进来的symbol检测是否存在内类 是否的话就订阅它
-	value, exists := m.getKlineDataMap(_time).Load(symbol)
+	value, exists := m.getKlineDataMap(_time).Load(upperSymbol)
 	if !exists {
 		// 如果Ws数据未初始化完成时,单独使用api获取 - 兼容性代码 (防止在未初始化完成是,已经有交易员运行)
 		apiClient := NewAPIClient()
-		klines, err := apiClient.GetKlines(symbol, _time, 100)
+		klines, err := apiClient.GetKlines(upperSymbol, _time, 100)
 		if err != nil {
 			return nil, fmt.Errorf("获取%v分钟K线失败: %v", _time, err)
 		}
-		m.getKlineDataMap(_time).Store(strings.ToUpper(symbol), klines) //动态缓存进缓存
-		subStr := m.subscribeSymbol(symbol, _time)
+		m.getKlineDataMap(_time).Store(upperSymbol, klines) //动态缓存进缓存
+		subStr := m.subscribeSymbol(upperSymbol, _time)
 		subErr := m.combinedClient.subscribeStreams(subStr)
 		log.Printf("动态订阅流: %v", subStr)
 		if subErr != nil {
 			return nil, fmt.Errorf("动态订阅%v分钟K线失败: %v", _time, subErr)
 		}
-		if err != nil {
-			return nil, fmt.Errorf("获取%v分钟K线失败: %v", _time, err)
-		}
-		return klines, fmt.Errorf("symbol不存在")
+		return klines, nil
 	}
 	return value.([]Kline), nil
 }
