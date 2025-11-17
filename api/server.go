@@ -268,6 +268,23 @@ type ExchangeConfig struct {
 	Testnet   bool   `json:"testnet,omitempty"`
 }
 
+// SafeExchangeConfig 用于API响应的安全交易所配置（不包含敏感数据）
+type SafeExchangeConfig struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"` // "cex" or "dex"
+	Enabled bool   `json:"enabled"`
+	Testnet bool   `json:"testnet,omitempty"`
+}
+
+// SafeAIModelConfig 用于API响应的安全AI模型配置（不包含敏感数据）
+type SafeAIModelConfig struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Provider string `json:"provider"`
+	Enabled bool   `json:"enabled"`
+}
+
 type UpdateModelConfigRequest struct {
 	Models map[string]struct {
 		Enabled         bool   `json:"enabled"`
@@ -675,7 +692,18 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 	}
 	log.Printf("✅ 找到 %d 个AI模型配置", len(models))
 
-	c.JSON(http.StatusOK, models)
+	// 转换为安全的配置，移除敏感数据
+	safeModels := make([]*SafeAIModelConfig, 0, len(models))
+	for _, model := range models {
+		safeModels = append(safeModels, &SafeAIModelConfig{
+			ID:       model.ID,
+			Name:     model.Name,
+			Provider: model.Provider,
+			Enabled:  model.Enabled,
+		})
+	}
+
+	c.JSON(http.StatusOK, safeModels)
 }
 
 // handleUpdateModelConfigs 更新AI模型配置
@@ -687,9 +715,9 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 		return
 	}
 
-	// 更新每个模型的配置
+	// 更新每个模型的配置，使用安全更新方法防止空值覆盖敏感数据
 	for modelID, modelData := range req.Models {
-		err := s.database.UpdateAIModel(userID, modelID, modelData.Enabled, modelData.APIKey, modelData.CustomAPIURL, modelData.CustomModelName)
+		err := s.database.UpdateAIModelSafe(userID, modelID, modelData.Enabled, modelData.APIKey, modelData.CustomAPIURL, modelData.CustomModelName)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新模型 %s 失败: %v", modelID, err)})
 			return
@@ -719,7 +747,19 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 	}
 	log.Printf("✅ 找到 %d 个交易所配置", len(exchanges))
 
-	c.JSON(http.StatusOK, exchanges)
+	// 转换为安全的配置，移除敏感数据
+	safeExchanges := make([]*SafeExchangeConfig, 0, len(exchanges))
+	for _, exchange := range exchanges {
+		safeExchanges = append(safeExchanges, &SafeExchangeConfig{
+			ID:      exchange.ID,
+			Name:    exchange.Name,
+			Type:    exchange.Type,
+			Enabled: exchange.Enabled,
+			Testnet: exchange.Testnet,
+		})
+	}
+
+	c.JSON(http.StatusOK, safeExchanges)
 }
 
 // handleUpdateExchangeConfigs 更新交易所配置
@@ -731,9 +771,9 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 		return
 	}
 
-	// 更新每个交易所的配置
+	// 更新每个交易所的配置，使用安全更新方法防止空值覆盖敏感数据
 	for exchangeID, exchangeData := range req.Exchanges {
-		err := s.database.UpdateExchange(userID, exchangeID, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Testnet, exchangeData.HyperliquidWalletAddr, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey)
+		err := s.database.UpdateExchangeSafe(userID, exchangeID, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Testnet, exchangeData.HyperliquidWalletAddr, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新交易所 %s 失败: %v", exchangeID, err)})
 			return

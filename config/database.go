@@ -579,6 +579,100 @@ func (d *Database) GetAIModels(userID string) ([]*AIModelConfig, error) {
 }
 
 // UpdateAIModel 更新AI模型配置，如果不存在则创建用户特定配置
+// UpdateAIModelSafe 安全更新AI模型配置，只有非空的敏感字段才会被更新
+func (d *Database) UpdateAIModelSafe(userID, id string, enabled bool, apiKey, customAPIURL, customModelName string) error {
+	log.Printf("🔧 UpdateAIModelSafe: userID=%s, id=%s, enabled=%v", userID, id, enabled)
+
+	// 首先尝试精确匹配 ID（新版逻辑，支持多个相同 provider 的模型）
+	var existingID string
+	var existingAPIKey, existingCustomAPIURL, existingCustomModelName string
+	var existingEnabled bool
+	
+	err := d.db.QueryRow(`
+		SELECT id, api_key, custom_api_url, custom_model_name, enabled FROM ai_models WHERE user_id = ? AND id = ? LIMIT 1
+	`, userID, id).Scan(&existingID, &existingAPIKey, &existingCustomAPIURL, &existingCustomModelName, &existingEnabled)
+
+	if err == nil {
+		// 找到了现有配置（精确匹配 ID），安全更新它
+		// 只有当传入的值非空时才更新敏感字段
+		finalAPIKey := existingAPIKey
+		if apiKey != "" {
+			finalAPIKey = apiKey
+			log.Printf("🔑 UpdateAIModelSafe: 更新API密钥")
+		}
+
+		finalCustomAPIURL := existingCustomAPIURL
+		if customAPIURL != "" {
+			finalCustomAPIURL = customAPIURL
+			log.Printf("🔑 UpdateAIModelSafe: 更新自定义API URL")
+		}
+
+		finalCustomModelName := existingCustomModelName
+		if customModelName != "" {
+			finalCustomModelName = customModelName
+			log.Printf("🔑 UpdateAIModelSafe: 更新自定义模型名称")
+		}
+
+		_, err = d.db.Exec(`
+			UPDATE ai_models SET enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
+			WHERE id = ? AND user_id = ?
+		`, enabled, finalAPIKey, finalCustomAPIURL, finalCustomModelName, existingID, userID)
+		
+		if err != nil {
+			log.Printf("❌ UpdateAIModelSafe: 更新失败: %v", err)
+		} else {
+			log.Printf("✅ UpdateAIModelSafe: 安全更新现有记录成功")
+		}
+		return err
+	}
+
+	// ID 不存在，尝试兼容旧逻辑：将 id 作为 provider 查找
+	provider := id
+	err = d.db.QueryRow(`
+		SELECT id, api_key, custom_api_url, custom_model_name, enabled FROM ai_models WHERE user_id = ? AND provider = ? LIMIT 1
+	`, userID, provider).Scan(&existingID, &existingAPIKey, &existingCustomAPIURL, &existingCustomModelName, &existingEnabled)
+
+	if err == nil {
+		// 找到了现有配置（通过 provider 匹配，兼容旧版），安全更新它
+		log.Printf("⚠️  使用旧版 provider 匹配更新模型: %s -> %s", provider, existingID)
+		
+		// 只有当传入的值非空时才更新敏感字段
+		finalAPIKey := existingAPIKey
+		if apiKey != "" {
+			finalAPIKey = apiKey
+			log.Printf("🔑 UpdateAIModelSafe: 更新API密钥")
+		}
+
+		finalCustomAPIURL := existingCustomAPIURL
+		if customAPIURL != "" {
+			finalCustomAPIURL = customAPIURL
+			log.Printf("🔑 UpdateAIModelSafe: 更新自定义API URL")
+		}
+
+		finalCustomModelName := existingCustomModelName
+		if customModelName != "" {
+			finalCustomModelName = customModelName
+			log.Printf("🔑 UpdateAIModelSafe: 更新自定义模型名称")
+		}
+
+		_, err = d.db.Exec(`
+			UPDATE ai_models SET enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
+			WHERE id = ? AND user_id = ?
+		`, enabled, finalAPIKey, finalCustomAPIURL, finalCustomModelName, existingID, userID)
+		
+		if err != nil {
+			log.Printf("❌ UpdateAIModelSafe: 更新失败: %v", err)
+		} else {
+			log.Printf("✅ UpdateAIModelSafe: 安全更新现有记录成功")
+		}
+		return err
+	}
+
+	// 没有找到任何现有配置，创建新的（使用原始方法）
+	log.Printf("💡 UpdateAIModelSafe: 记录不存在，创建新记录")
+	return d.UpdateAIModel(userID, id, enabled, apiKey, customAPIURL, customModelName)
+}
+
 func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, customAPIURL, customModelName string) error {
 	// 先尝试精确匹配 ID（新版逻辑，支持多个相同 provider 的模型）
 	var existingID string
@@ -695,7 +789,94 @@ func (d *Database) GetExchanges(userID string) ([]*ExchangeConfig, error) {
 	return exchanges, nil
 }
 
-// UpdateExchange 更新交易所配置，如果不存在则创建用户特定配置
+// UpdateExchangeSafe 安全更新交易所配置，只有非空的敏感字段才会被更新
+func (d *Database) UpdateExchangeSafe(userID, id string, enabled bool, apiKey, secretKey string, testnet bool, hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey string) error {
+	log.Printf("🔧 UpdateExchangeSafe: userID=%s, id=%s, enabled=%v", userID, id, enabled)
+
+	// 首先获取现有配置
+	var existingEnabled bool
+	var existingAPIKey, existingSecretKey, existingHyperliquidWalletAddr, existingAsterUser, existingAsterSigner, existingAsterPrivateKey string
+	var existingTestnet bool
+	
+	err := d.db.QueryRow(`
+		SELECT enabled, api_key, secret_key, testnet, 
+		       COALESCE(hyperliquid_wallet_addr, ''), COALESCE(aster_user, ''), 
+		       COALESCE(aster_signer, ''), COALESCE(aster_private_key, '')
+		FROM exchanges WHERE id = ? AND user_id = ?
+	`, id, userID).Scan(&existingEnabled, &existingAPIKey, &existingSecretKey, &existingTestnet,
+		&existingHyperliquidWalletAddr, &existingAsterUser, &existingAsterSigner, &existingAsterPrivateKey)
+	
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			// 如果记录不存在，创建新记录
+			log.Printf("💡 UpdateExchangeSafe: 记录不存在，创建新记录")
+			return d.UpdateExchange(userID, id, enabled, apiKey, secretKey, testnet, hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey)
+		}
+		log.Printf("❌ UpdateExchangeSafe: 获取现有记录失败: %v", err)
+		return err
+	}
+
+	// 只有当传入的值非空时才更新敏感字段
+	finalAPIKey := existingAPIKey
+	if apiKey != "" {
+		finalAPIKey = apiKey
+		log.Printf("🔑 UpdateExchangeSafe: 更新API密钥")
+	}
+
+	finalSecretKey := existingSecretKey
+	if secretKey != "" {
+		finalSecretKey = secretKey
+		log.Printf("🔑 UpdateExchangeSafe: 更新私钥")
+	}
+
+	finalHyperliquidWalletAddr := existingHyperliquidWalletAddr
+	if hyperliquidWalletAddr != "" {
+		finalHyperliquidWalletAddr = hyperliquidWalletAddr
+		log.Printf("🔑 UpdateExchangeSafe: 更新Hyperliquid钱包地址")
+	}
+
+	finalAsterUser := existingAsterUser
+	if asterUser != "" {
+		finalAsterUser = asterUser
+		log.Printf("🔑 UpdateExchangeSafe: 更新Aster用户")
+	}
+
+	finalAsterSigner := existingAsterSigner
+	if asterSigner != "" {
+		finalAsterSigner = asterSigner
+		log.Printf("🔑 UpdateExchangeSafe: 更新Aster签名者")
+	}
+
+	finalAsterPrivateKey := existingAsterPrivateKey
+	if asterPrivateKey != "" {
+		finalAsterPrivateKey = asterPrivateKey
+		log.Printf("🔑 UpdateExchangeSafe: 更新Aster私钥")
+	}
+
+	// 更新记录
+	result, err := d.db.Exec(`
+		UPDATE exchanges SET enabled = ?, api_key = ?, secret_key = ?, testnet = ?, 
+		       hyperliquid_wallet_addr = ?, aster_user = ?, aster_signer = ?, aster_private_key = ?, updated_at = datetime('now')
+		WHERE id = ? AND user_id = ?
+	`, enabled, finalAPIKey, finalSecretKey, testnet, finalHyperliquidWalletAddr, finalAsterUser, finalAsterSigner, finalAsterPrivateKey, id, userID)
+	
+	if err != nil {
+		log.Printf("❌ UpdateExchangeSafe: 更新失败: %v", err)
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("❌ UpdateExchangeSafe: 获取影响行数失败: %v", err)
+		return err
+	}
+
+	log.Printf("📊 UpdateExchangeSafe: 影响行数 = %d", rowsAffected)
+	log.Printf("✅ UpdateExchangeSafe: 安全更新现有记录成功")
+	return nil
+}
+
+// UpdateExchange 更新交易所配置
 func (d *Database) UpdateExchange(userID, id string, enabled bool, apiKey, secretKey string, testnet bool, hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey string) error {
 	log.Printf("🔧 UpdateExchange: userID=%s, id=%s, enabled=%v", userID, id, enabled)
 

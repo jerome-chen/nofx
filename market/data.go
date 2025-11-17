@@ -9,7 +9,26 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// getCurrentPriceFromWebSocket 获取WebSocket实时价格
+func getCurrentPriceFromWebSocket(monitor *WSMonitor, symbol string) (float64, error) {
+	// 从WSMonitor获取最新的3分钟K线收盘价
+	klines, err := monitor.GetCurrentKlines(symbol, "3m")
+	if err != nil {
+		return 0, fmt.Errorf("获取WebSocket价格失败: %v", err)
+	}
+	if len(klines) == 0 {
+		return 0, fmt.Errorf("无K线数据")
+	}
+	
+	// 获取最新K线的收盘价
+	latestPrice := klines[len(klines)-1].Close
+	log.Printf("🔍 [DEBUG] %s WebSocket价格: %.6f (K线数量: %d, 最新K线时间: %d)", 
+		symbol, latestPrice, len(klines), klines[len(klines)-1].CloseTime)
+	return latestPrice, nil
+}
 
 // Get 获取指定代币的市场数据
 func Get(monitor *WSMonitor, symbol string) (*Data, error) {
@@ -41,15 +60,31 @@ func Get(monitor *WSMonitor, symbol string) (*Data, error) {
 		return nil, fmt.Errorf("获取4小时K线失败: %v", err)
 	}
 
+	// 优先使用WebSocket实时价格，失败时降级到K线收盘价
+	currentPrice, err := getCurrentPriceFromWebSocket(monitor, symbol)
+	if err != nil {
+		// 降级到3分钟K线收盘价
+		currentPrice = klines3m[len(klines3m)-1].Close
+		log.Printf("⚠️ [DEBUG] %s 使用K线收盘价: %.6f (原因: %v)", symbol, currentPrice, err)
+	} else {
+		log.Printf("✅ [DEBUG] %s 使用WebSocket价格: %.6f", symbol, currentPrice)
+	}
+
+	// 验证价格数据的新鲜度
+	currentTime := time.Now().Unix() * 1000 // 转换为毫秒
+	lastKlineTime := klines3m[len(klines3m)-1].CloseTime
+	priceAgeMinutes := (currentTime - lastKlineTime) / (60 * 1000)
+	log.Printf("🔍 [DEBUG] %s 价格年龄: %d分钟 (当前时间: %d, K线时间: %d)", 
+		symbol, priceAgeMinutes, currentTime, lastKlineTime)
+
 	// 计算当前指标 (基于3分钟最新数据)
-	currentPrice := klines3m[len(klines3m)-1].Close
 	currentEMA20 := calculateEMA(klines3m, 20)
 	currentMACD := calculateMACD(klines3m)
 	currentRSI7 := calculateRSI(klines3m, 7)
 
-	// 调试日志：输出当前价格和时间戳
-	log.Printf("🔍 [DEBUG] %s 当前价格: %.6f (数据来源: 3m K线, 时间: %d)", 
-		symbol, currentPrice, klines3m[len(klines3m)-1].CloseTime)
+	// 调试日志：输出当前价格和数据源
+	log.Printf("🔍 [DEBUG] %s 最终使用价格: %.6f (数据源: WebSocket, 价格年龄: %d分钟)", 
+		symbol, currentPrice, priceAgeMinutes)
 
 	// 计算价格变化百分比
 	// 1小时价格变化 - 优先使用1小时K线数据
