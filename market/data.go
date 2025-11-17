@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -45,6 +46,10 @@ func Get(monitor *WSMonitor, symbol string) (*Data, error) {
 	currentEMA20 := calculateEMA(klines3m, 20)
 	currentMACD := calculateMACD(klines3m)
 	currentRSI7 := calculateRSI(klines3m, 7)
+
+	// 调试日志：输出当前价格和时间戳
+	log.Printf("🔍 [DEBUG] %s 当前价格: %.6f (数据来源: 3m K线, 时间: %d)", 
+		symbol, currentPrice, klines3m[len(klines3m)-1].CloseTime)
 
 	// 计算价格变化百分比
 	// 1小时价格变化 - 优先使用1小时K线数据

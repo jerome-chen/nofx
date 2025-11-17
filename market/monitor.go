@@ -227,6 +227,13 @@ func (m *WSMonitor) processKlineUpdate(symbol string, wsData KlineWSData, _time 
 	kline.QuoteVolume, _ = parseFloat(wsData.Kline.QuoteVolume)
 	kline.TakerBuyBaseVolume, _ = parseFloat(wsData.Kline.TakerBuyBaseVolume)
 	kline.TakerBuyQuoteVolume, _ = parseFloat(wsData.Kline.TakerBuyQuoteVolume)
+
+	// 调试日志：输出WebSocket价格更新
+	if _time == "3m" {
+		log.Printf("🔍 [DEBUG] WebSocket %s %s 价格更新: %.6f (是否完成: %v)", 
+			symbol, _time, kline.Close, wsData.Kline.IsFinal)
+	}
+	
 	// 更新K线数据
 	var klineDataMap = m.getKlineDataMap(_time)
 	value, exists := klineDataMap.Load(symbol)
