@@ -457,7 +457,6 @@ type SafeExchangeConfig struct {
 	AsterUser             string `json:"asterUser"`             // Aster用户名（不敏感）
 	AsterSigner           string `json:"asterSigner"`           // Aster签名者（不敏感）
 }
-}
 
 type UpdateModelConfigRequest struct {
 	Models map[string]struct {
@@ -996,8 +995,6 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 			CustomModelName: model.CustomModelName,
 		}
 	}
-	}
-
 	c.JSON(http.StatusOK, safeModels)
 }
 
@@ -1094,8 +1091,6 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 			AsterSigner:           exchange.AsterSigner,
 		}
 	}
-	}
-
 	c.JSON(http.StatusOK, safeExchanges)
 }
 

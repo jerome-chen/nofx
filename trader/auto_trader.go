@@ -85,7 +85,6 @@ type AutoTrader struct {
 	exchange              string // 交易平台名称
 	config                AutoTraderConfig
 	trader                Trader // 使用Trader接口（支持多平台）
-<<<<<<< HEAD
 	mcpClient             mcp.AIClient
 	decisionLogger        logger.IDecisionLogger // 决策日志记录器
 	wsMonitor             *market.WSMonitor      // WebSocket监控器实例
@@ -291,7 +290,6 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		defaultCoins:          config.DefaultCoins,
 		tradingCoins:          tradingCoins,
 		positionFirstSeenTime: make(map[string]int64),
-<<<<<<< HEAD
 		startTime:             time.Now(), // 修复：初始化启动时间
 		stopMonitorCh:         make(chan struct{}),
 		monitorWg:             sync.WaitGroup{},
@@ -951,7 +949,7 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *decision.Decisio
 	log.Printf("  🎯 调整止损: %s → %.2f", decision.Symbol, decision.NewStopLoss)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(at.wsMonitor, decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -1035,7 +1033,7 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *decision.Decis
 	log.Printf("  🎯 调整止盈: %s → %.2f", decision.Symbol, decision.NewTakeProfit)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(at.wsMonitor, decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -1124,7 +1122,7 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *decision.Decision,
 	}
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(at.wsMonitor, decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -1785,5 +1783,4 @@ func (at *AutoTrader) ClearPeakPnLCache(symbol, side string) {
 
 	posKey := symbol + "_" + side
 	delete(at.peakPnLCache, posKey)
-}
 }

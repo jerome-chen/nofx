@@ -70,7 +70,6 @@ func syncConfigToDatabase(database *config.Database, configFile *ConfigFile) err
 
 	// 同步各配置项到数据库
 	configs := map[string]string{
-		"admin_mode":           fmt.Sprintf("%t", configFile.AdminMode),
 		"beta_mode":            fmt.Sprintf("%t", configFile.BetaMode),
 		"api_server_port":      strconv.Itoa(configFile.APIServerPort),
 		"use_default_coins":    fmt.Sprintf("%t", configFile.UseDefaultCoins),
