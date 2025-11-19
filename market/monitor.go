@@ -131,14 +131,14 @@ func (m *WSMonitor) Start(coins []string) {
 	// 初始化交易对
 	err := m.Initialize(coins)
 	if err != nil {
-		log.Fatalf("❌ 初始化币种: %v", err)
+		log.Printf("❌ 初始化币种失败: %v", err)
 		return
 	}
 
 	// 先建立WebSocket连接
 	err = m.combinedClient.Connect()
 	if err != nil {
-		log.Fatalf("❌ 建立WebSocket连接失败: %v", err)
+		log.Printf("❌ 批量订阅流失败: %v", err)
 		return
 	}
 
@@ -152,8 +152,8 @@ func (m *WSMonitor) Start(coins []string) {
 	// 订阅所有交易对（用于兼容性）
 	err = m.subscribeAll()
 	if err != nil {
-		log.Printf("⚠️ 订阅币种交易对失败: %v", err)
-		// 不致命，继续运行
+		log.Printf("❌ 订阅币种交易对失败: %v", err)
+		return
 	}
 }
 
@@ -182,8 +182,8 @@ func (m *WSMonitor) subscribeAll() error {
 	for _, st := range subKlineTime {
 		err := m.combinedClient.BatchSubscribeKlines(m.symbols, st)
 		if err != nil {
-			log.Printf("❌ 订阅%v K线: %v", st, err) // 修改为log.Printf，避免程序退出
-			// 不立即返回错误，继续尝试订阅其他时间周期
+			log.Printf("❌ 订阅 %s K线失败: %v", st, err)
+			return err
 		}
 	}
 	
@@ -337,31 +337,39 @@ func (m *WSMonitor) processKlineUpdate(symbol string, wsData KlineWSData, _time 
 	}
 }
 
-// 获取当前K线数据
-func (m *WSMonitor) GetCurrentKlines(symbol, timeFrame string) ([]Kline, error) {
-	// 检查是否已有该时间周期的数据
-	if dataMap, exists := m.klineDataMap[timeFrame]; exists {
-		if klines, ok := dataMap.Load(symbol); ok {
-			if klineList, ok := klines.([]Kline); ok && len(klineList) > 0 {
-				return klineList, nil
-			}
+func (m *WSMonitor) GetCurrentKlines(symbol string, duration string) ([]Kline, error) {
+	// 对每一个进来的symbol检测是否存在内类 是否的话就订阅它
+	value, exists := m.getKlineDataMap(duration).Load(symbol)
+	if !exists {
+		// 如果Ws数据未初始化完成时,单独使用api获取 - 兼容性代码 (防止在未初始化完成是,已经有交易员运行)
+		apiClient := NewAPIClient()
+		klines, err := apiClient.GetKlines(symbol, duration, 100)
+		if err != nil {
+			return nil, fmt.Errorf("获取%v分钟K线失败: %v", duration, err)
 		}
+
+		// 动态缓存进缓存
+		m.getKlineDataMap(duration).Store(strings.ToUpper(symbol), klines)
+
+		// 订阅 WebSocket 流
+		subStr := m.subscribeSymbol(symbol, duration)
+		subErr := m.combinedClient.subscribeStreams(subStr)
+		log.Printf("动态订阅流: %v", subStr)
+		if subErr != nil {
+			log.Printf("警告: 动态订阅%v分钟K线失败: %v (使用API数据)", duration, subErr)
+		}
+
+		// ✅ FIX: 返回深拷贝而非引用
+		result := make([]Kline, len(klines))
+		copy(result, klines)
+		return result, nil
 	}
-	
-	// 不再进行动态订阅，直接回退到API，避免重复订阅问题
-	log.Printf("WebSocket数据不可用，使用API获取 %s %s 数据", symbol, timeFrame)
-	apiClient := NewAPIClient()
-	klines, err := apiClient.GetKlines(symbol, timeFrame, 200)
-	if err != nil {
-		return nil, fmt.Errorf("获取K线数据失败: %v", err)
-	}
-	
-	// 缓存API数据
-	if dataMap, exists := m.klineDataMap[timeFrame]; exists {
-		dataMap.Store(symbol, klines)
-	}
-	
-	return klines, nil
+
+	// ✅ FIX: 返回深拷贝而非引用，避免并发竞态条件
+	klines := value.([]Kline)
+	result := make([]Kline, len(klines))
+	copy(result, klines)
+	return result, nil
 }
 
 func (m *WSMonitor) Close() {

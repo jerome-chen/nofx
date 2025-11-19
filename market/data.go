@@ -6,10 +6,22 @@ import (
 	"io"
 	"log"
 	"math"
-	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+// FundingRateCache 资金费率缓存结构
+// Binance Funding Rate 每 8 小时才更新一次，使用 1 小时缓存可显著减少 API 调用
+type FundingRateCache struct {
+	Rate      float64
+	UpdatedAt time.Time
+}
+
+var (
+	fundingRateMap sync.Map // map[string]*FundingRateCache
+	frCacheTTL     = 1 * time.Hour
 )
 
 // getCurrentPriceFromWebSocket 获取WebSocket实时价格
@@ -61,6 +73,12 @@ func Get(monitor *WSMonitor, symbol string) (*Data, error) {
 		return nil, fmt.Errorf("获取1小时K线失败: %v", err)
 	}
 
+	// Data staleness detection: Prevent DOGEUSDT-style price freeze issues
+	if isStaleData(klines3m, symbol) {
+		log.Printf("⚠️  WARNING: %s detected stale data (consecutive price freeze), skipping symbol", symbol)
+		return nil, fmt.Errorf("%s data is stale, possible cache failure", symbol)
+	}
+
 	// 获取4小时K线数据 (最近10个)
 	klines4h, err = monitor.GetCurrentKlines(symbol, "4h") // 多获取用于计算指标
 	if err != nil {
@@ -84,6 +102,13 @@ func Get(monitor *WSMonitor, symbol string) (*Data, error) {
 	log.Printf("🔍 [DEBUG] %s 价格年龄: %d分钟 (当前时间: %d, K线时间: %d)", 
 		symbol, priceAgeMinutes, currentTime, lastKlineTime)
 
+	// 检查数据是否为空
+	if len(klines3m) == 0 {
+		return nil, fmt.Errorf("3分钟K线数据为空")
+	}
+	if len(klines4h) == 0 {
+		return nil, fmt.Errorf("4小时K线数据为空")
+	}
 	// 计算当前指标 (基于3分钟最新数据)
 	currentEMA20 := calculateEMA(klines3m, 20)
 	currentMACD := calculateMACD(klines3m)
@@ -284,6 +309,7 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 		MACDValues:  make([]float64, 0, 10),
 		RSI7Values:  make([]float64, 0, 10),
 		RSI14Values: make([]float64, 0, 10),
+		Volume:      make([]float64, 0, 10),
 	}
 
 	// 获取最近10个数据点
@@ -294,6 +320,7 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 
 	for i := start; i < len(klines); i++ {
 		data.MidPrices = append(data.MidPrices, klines[i].Close)
+		data.Volume = append(data.Volume, klines[i].Volume)
 
 		// 计算每个点的EMA20
 		if i >= 19 {
@@ -317,6 +344,9 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 			data.RSI14Values = append(data.RSI14Values, rsi14)
 		}
 	}
+
+	// 计算3m ATR14
+	data.ATR14 = calculateATR(klines, 14)
 
 	return data
 }
@@ -371,7 +401,8 @@ func calculateLongerTermData(klines []Kline) *LongerTermData {
 func getOpenInterestData(symbol string) (*OIData, error) {
 	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/openInterest?symbol=%s", symbol)
 
-	resp, err := http.Get(url)
+	apiClient := NewAPIClient()
+	resp, err := apiClient.client.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -400,11 +431,23 @@ func getOpenInterestData(symbol string) (*OIData, error) {
 	}, nil
 }
 
-// getFundingRate 获取资金费率
+// getFundingRate 获取资金费率（优化：使用 1 小时缓存）
 func getFundingRate(symbol string) (float64, error) {
+	// 检查缓存（有效期 1 小时）
+	// Funding Rate 每 8 小时才更新，1 小时缓存非常合理
+	if cached, ok := fundingRateMap.Load(symbol); ok {
+		cache := cached.(*FundingRateCache)
+		if time.Since(cache.UpdatedAt) < frCacheTTL {
+			// 缓存命中，直接返回
+			return cache.Rate, nil
+		}
+	}
+
+	// 缓存过期或不存在，调用 API
 	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/premiumIndex?symbol=%s", symbol)
 
-	resp, err := http.Get(url)
+	apiClient := NewAPIClient()
+	resp, err := apiClient.client.Get(url)
 	if err != nil {
 		return 0, err
 	}
@@ -430,6 +473,13 @@ func getFundingRate(symbol string) (float64, error) {
 	}
 
 	rate, _ := strconv.ParseFloat(result.LastFundingRate, 64)
+
+	// 更新缓存
+	fundingRateMap.Store(symbol, &FundingRateCache{
+		Rate:      rate,
+		UpdatedAt: time.Now(),
+	})
+
 	return rate, nil
 }
 
@@ -437,10 +487,10 @@ func getFundingRate(symbol string) (float64, error) {
 func Format(data *Data) string {
 	var sb strings.Builder
 
-	// 3分钟周期指标 - 简化标题和冗余文本
-	sb.WriteString("3m: ")
-	sb.WriteString(fmt.Sprintf("price=%.2f, ema20=%.3f, macd=%.3f, rsi7=%.3f\n",
-		data.CurrentPrice, data.CurrentEMA20, data.CurrentMACD, data.CurrentRSI7))
+	// 使用动态精度格式化价格
+	priceStr := formatPriceWithDynamicPrecision(data.CurrentPrice)
+	sb.WriteString(fmt.Sprintf("current_price = %s, current_ema20 = %.3f, current_macd = %.3f, current_rsi (7 period) = %.3f\n\n",
+		priceStr, data.CurrentEMA20, data.CurrentMACD, data.CurrentRSI7))
 
 	// 15分钟周期指标
 	sb.WriteString("15m: ")
@@ -464,6 +514,14 @@ func Format(data *Data) string {
 		}
 		sb.WriteString(fmt.Sprintf("ema20=%.3f, macd=%.3f, rsi14=%.3f\n",
 			data.LongerTermContext.EMA20, latestMACD4h, latestRSI144h))
+	}
+
+	if data.OpenInterest != nil {
+		// 使用动态精度格式化 OI 数据
+		oiLatestStr := formatPriceWithDynamicPrecision(data.OpenInterest.Latest)
+		oiAverageStr := formatPriceWithDynamicPrecision(data.OpenInterest.Average)
+		sb.WriteString(fmt.Sprintf("Open Interest: Latest: %s Average: %s\n\n",
+			oiLatestStr, oiAverageStr))
 	}
 
 	// 简化合约信息文本
@@ -512,6 +570,12 @@ func Format(data *Data) string {
 		if hasIntradayData {
 			sb.WriteString("\n")
 		}
+
+		if len(data.IntradaySeries.Volume) > 0 {
+			sb.WriteString(fmt.Sprintf("Volume: %s\n\n", formatFloatSlice(data.IntradaySeries.Volume)))
+		}
+
+		sb.WriteString(fmt.Sprintf("3m ATR (14‑period): %.3f\n\n", data.IntradaySeries.ATR14))
 	}
 
 	// 简化长期指标输出
@@ -548,45 +612,49 @@ func Format(data *Data) string {
 	return sb.String()
 }
 
-// formatFloatSlice 格式化float64切片为字符串，输出更紧凑
-func formatFloatSlice(values []float64) string {
-	// 限制输出元素数量，避免过长的数组表示
-	maxDisplay := 10
-	displayValues := values
-	if len(values) > maxDisplay {
-		// 只显示前几个和最后几个元素
-		displayValues = append(values[:maxDisplay/2], values[len(values)-maxDisplay/2:]...)
+// formatPriceWithDynamicPrecision 根据价格区间动态选择精度
+// 这样可以完美支持从超低价 meme coin (< 0.0001) 到 BTC/ETH 的所有币种
+func formatPriceWithDynamicPrecision(price float64) string {
+	switch {
+	case price < 0.0001:
+		// 超低价 meme coin: 1000SATS, 1000WHY, DOGS
+		// 0.00002070 → "0.00002070" (8位小数)
+		return fmt.Sprintf("%.8f", price)
+	case price < 0.001:
+		// 低价 meme coin: NEIRO, HMSTR, HOT, NOT
+		// 0.00015060 → "0.000151" (6位小数)
+		return fmt.Sprintf("%.6f", price)
+	case price < 0.01:
+		// 中低价币: PEPE, SHIB, MEME
+		// 0.00556800 → "0.005568" (6位小数)
+		return fmt.Sprintf("%.6f", price)
+	case price < 1.0:
+		// 低价币: ASTER, DOGE, ADA, TRX
+		// 0.9954 → "0.9954" (4位小数)
+		return fmt.Sprintf("%.4f", price)
+	case price < 100:
+		// 中价币: SOL, AVAX, LINK, MATIC
+		// 23.4567 → "23.4567" (4位小数)
+		return fmt.Sprintf("%.4f", price)
+	default:
+		// 高价币: BTC, ETH (节省 Token)
+		// 45678.9123 → "45678.91" (2位小数)
+		return fmt.Sprintf("%.2f", price)
 	}
-	
-	strValues := make([]string, len(displayValues))
-	for i, v := range displayValues {
-		// 根据数值大小动态调整精度，确保memecoins等小价值数字的精度
-		if math.Abs(v) < 0.01 && v != 0 {
-			// 对于非常小的值（接近0但非0），使用科学计数法以保留精度
-			strValues[i] = fmt.Sprintf("%.6g", v)
-		} else if math.Abs(v) < 1.0 {
-			// 对于小于1的值，使用更高的小数精度
-			strValues[i] = fmt.Sprintf("%.6f", v)
-		} else if math.Abs(v) < 100.0 {
-			// 对于中等大小的值，保持中等精度
-			strValues[i] = fmt.Sprintf("%.4f", v)
-		} else {
-			// 对于较大的值，可以使用较少的小数位
-			strValues[i] = fmt.Sprintf("%.2f", v)
-		}
+}
+
+// formatFloatSlice 格式化float64切片为字符串（使用动态精度）
+func formatFloatSlice(values []float64) string {
+	strValues := make([]string, len(values))
+	for i, v := range values {
+		strValues[i] = formatPriceWithDynamicPrecision(v)
 	}
 	
 	// 使用更紧凑的分隔符
 	result := "[" + strings.Join(strValues, ",") + "]"
 	
-	// 如果截断了元素，添加指示
-	if len(values) > maxDisplay {
-		result += fmt.Sprintf("(%d total)", len(values))
-	}
-	
 	return result
 }
-
 // Normalize 标准化symbol,确保是USDT交易对
 func Normalize(symbol string) string {
 	symbol = strings.ToUpper(symbol)
@@ -610,4 +678,48 @@ func parseFloat(v interface{}) (float64, error) {
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", v)
 	}
+}
+
+// isStaleData detects stale data (consecutive price freeze)
+// Fix DOGEUSDT-style issue: consecutive N periods with completely unchanged prices indicate data source anomaly
+func isStaleData(klines []Kline, symbol string) bool {
+	if len(klines) < 5 {
+		return false // Insufficient data to determine
+	}
+
+	// Detection threshold: 5 consecutive 3-minute periods with unchanged price (15 minutes without fluctuation)
+	const stalePriceThreshold = 5
+	const priceTolerancePct = 0.0001 // 0.01% fluctuation tolerance (avoid false positives)
+
+	// Take the last stalePriceThreshold K-lines
+	recentKlines := klines[len(klines)-stalePriceThreshold:]
+	firstPrice := recentKlines[0].Close
+
+	// Check if all prices are within tolerance
+	for i := 1; i < len(recentKlines); i++ {
+		priceDiff := math.Abs(recentKlines[i].Close-firstPrice) / firstPrice
+		if priceDiff > priceTolerancePct {
+			return false // Price fluctuation exists, data is normal
+		}
+	}
+
+	// Additional check: MACD and volume
+	// If price is unchanged but MACD/volume shows normal fluctuation, it might be a real market situation (extremely low volatility)
+	// Check if volume is also 0 (data completely frozen)
+	allVolumeZero := true
+	for _, k := range recentKlines {
+		if k.Volume > 0 {
+			allVolumeZero = false
+			break
+		}
+	}
+
+	if allVolumeZero {
+		log.Printf("⚠️  %s stale data confirmed: price freeze + zero volume", symbol)
+		return true
+	}
+
+	// Price frozen but has volume: might be extremely low volatility market, allow but log warning
+	log.Printf("⚠️  %s detected extreme price stability (no fluctuation for %d consecutive periods), but volume is normal", symbol, stalePriceThreshold)
+	return false
 }
