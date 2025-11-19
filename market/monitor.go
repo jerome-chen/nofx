@@ -372,6 +372,16 @@ func (m *WSMonitor) GetCurrentKlines(symbol string, duration string) ([]Kline, e
 	return result, nil
 }
 
+func (m *WSMonitor) getKlineDataMap(duration string) *sync.Map {
+	if dataMap, exists := m.klineDataMap[duration]; exists {
+		return dataMap
+	}
+	// 如果不存在，创建一个新的sync.Map
+	newMap := &sync.Map{}
+	m.klineDataMap[duration] = newMap
+	return newMap
+}
+
 func (m *WSMonitor) Close() {
 	m.wsClient.Close()
 	close(m.alertsChan)
