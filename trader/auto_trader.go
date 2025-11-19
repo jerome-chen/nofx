@@ -238,6 +238,7 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 			defaultCoins:          config.DefaultCoins,
 			tradingCoins:          tradingCoins,
 			positionFirstSeenTime: make(map[string]int64),
+			startTime:             time.Now(), // 修复：初始化启动时间
 		}
 
 		go func(trader *AutoTrader) {
@@ -277,6 +278,7 @@ func NewAutoTrader(config AutoTraderConfig) (*AutoTrader, error) {
 		defaultCoins:          config.DefaultCoins,
 		tradingCoins:          tradingCoins,
 		positionFirstSeenTime: make(map[string]int64),
+		startTime:             time.Now(), // 修复：初始化启动时间
 	}, nil
 }
 

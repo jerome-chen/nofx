@@ -14,7 +14,15 @@ import (
 
 // getCurrentPriceFromWebSocket 获取WebSocket实时价格
 func getCurrentPriceFromWebSocket(monitor *WSMonitor, symbol string) (float64, error) {
-	// 从WSMonitor获取最新的3分钟K线收盘价
+	// 优先使用ticker数据获取实时价格
+	if price, ok := monitor.tickerDataMap.Load(symbol); ok {
+		if priceFloat, ok := price.(float64); ok {
+			log.Printf("🔍 [DEBUG] %s Ticker实时价格: %.6f", symbol, priceFloat)
+			return priceFloat, nil
+		}
+	}
+	
+	// 如果ticker数据不可用，降级到3分钟K线收盘价
 	klines, err := monitor.GetCurrentKlines(symbol, "3m")
 	if err != nil {
 		return 0, fmt.Errorf("获取WebSocket价格失败: %v", err)
@@ -25,8 +33,7 @@ func getCurrentPriceFromWebSocket(monitor *WSMonitor, symbol string) (float64, e
 	
 	// 获取最新K线的收盘价
 	latestPrice := klines[len(klines)-1].Close
-	log.Printf("🔍 [DEBUG] %s WebSocket价格: %.6f (K线数量: %d, 最新K线时间: %d)", 
-		symbol, latestPrice, len(klines), klines[len(klines)-1].CloseTime)
+	log.Printf("🔍 [DEBUG] %s 使用K线收盘价: %.6f (Ticker数据不可用)", symbol, latestPrice)
 	return latestPrice, nil
 }
 

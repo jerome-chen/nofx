@@ -50,6 +50,32 @@ func (c *CombinedStreamsClient) Connect() error {
 	return nil
 }
 
+// BatchSubscribeTickers 批量订阅ticker
+func (c *CombinedStreamsClient) BatchSubscribeTickers(symbols []string) error {
+	// 将symbols分批处理
+	batches := c.splitIntoBatches(symbols, c.batchSize)
+
+	for i, batch := range batches {
+		log.Printf("订阅ticker第 %d 批, 数量: %d", i+1, len(batch))
+
+		streams := make([]string, len(batch))
+		for j, symbol := range batch {
+			streams[j] = fmt.Sprintf("%s@ticker", strings.ToLower(symbol))
+		}
+
+		if err := c.subscribeStreams(streams); err != nil {
+			return fmt.Errorf("ticker第 %d 批订阅失败: %v", i+1, err)
+		}
+
+		// 批次间延迟，避免被限制
+		if i < len(batches)-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	return nil
+}
+
 // BatchSubscribeKlines 批量订阅K线
 func (c *CombinedStreamsClient) BatchSubscribeKlines(symbols []string, interval string) error {
 	// 将symbols分批处理

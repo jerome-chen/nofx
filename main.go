@@ -307,8 +307,8 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// 启动数据库中配置为运行状态的交易员
-	// traderManager.StartAll()
-	// log.Printf("✅ 交易员启动流程已触发")
+	traderManager.StartAll()
+	log.Printf("✅ 交易员启动流程已触发")
 
 	// 等待退出信号
 	<-sigChan

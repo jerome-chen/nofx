@@ -167,15 +167,18 @@ func (m *WSMonitor) subscribeSymbol(symbol, st string) []string {
 
 	return streams
 }
+
+// subscribeTicker 注册ticker监听
+func (m *WSMonitor) subscribeTicker(symbol string) string {
+	stream := fmt.Sprintf("%s@ticker", strings.ToLower(symbol))
+	ch := m.combinedClient.AddSubscriber(stream, 100)
+	go m.handleTickerData(symbol, ch)
+	return stream
+}
 // subscribeAll 订阅所有交易对
 func (m *WSMonitor) subscribeAll() error {
-	// 执行批量订阅
+	// 执行批量订阅（不再使用单独的subscribeSymbol以避免重复订阅）
 	log.Println("开始订阅所有交易对...")
-	for _, symbol := range m.symbols {
-		for _, st := range subKlineTime {
-			m.subscribeSymbol(symbol, st)
-		}
-	}
 	for _, st := range subKlineTime {
 		err := m.combinedClient.BatchSubscribeKlines(m.symbols, st)
 		if err != nil {
@@ -183,6 +186,19 @@ func (m *WSMonitor) subscribeAll() error {
 			// 不立即返回错误，继续尝试订阅其他时间周期
 		}
 	}
+	
+	// 批量订阅ticker数据
+	err := m.combinedClient.BatchSubscribeTickers(m.symbols)
+	if err != nil {
+		log.Printf("❌ 订阅ticker: %v", err)
+		// 不致命，继续运行
+	}
+	
+	// 为每个symbol注册ticker订阅者以接收数据
+	for _, symbol := range m.symbols {
+		m.subscribeTicker(symbol)
+	}
+	
 	log.Println("所有交易对订阅完成")
 	return nil
 }
@@ -213,6 +229,29 @@ func (m *WSMonitor) handleKlineMessage(data []byte) {
 	m.processKlineUpdate(symbol, klineData, timeFrame)
 }
 
+func (m *WSMonitor) handleTickerMessage(data []byte) {
+	var tickerData TickerWSData
+	if err := json.Unmarshal(data, &tickerData); err != nil {
+		log.Printf("解析Ticker数据失败: %v", err)
+		return
+	}
+	
+	symbol := strings.ToUpper(tickerData.Symbol)
+	
+	// 解析价格
+	price, err := parseFloat(tickerData.LastPrice)
+	if err != nil {
+		log.Printf("解析ticker价格失败: %v", err)
+		return
+	}
+	
+	// 存储到ticker数据映射
+	m.tickerDataMap.Store(symbol, price)
+	
+	// 调试日志
+	log.Printf("🔍 [DEBUG] Ticker %s 实时价格更新: %.6f", symbol, price)
+}
+
 func (m *WSMonitor) handleKlineData(symbol string, ch <-chan []byte, _time string) {
 	for data := range ch {
 		var klineData KlineWSData
@@ -221,6 +260,29 @@ func (m *WSMonitor) handleKlineData(symbol string, ch <-chan []byte, _time strin
 			continue
 		}
 		m.processKlineUpdate(symbol, klineData, _time)
+	}
+}
+
+func (m *WSMonitor) handleTickerData(symbol string, ch <-chan []byte) {
+	for data := range ch {
+		var tickerData TickerWSData
+		if err := json.Unmarshal(data, &tickerData); err != nil {
+			log.Printf("解析Ticker数据失败: %v", err)
+			continue
+		}
+		
+		// 解析价格
+		price, err := parseFloat(tickerData.LastPrice)
+		if err != nil {
+			log.Printf("解析ticker价格失败: %v", err)
+			continue
+		}
+		
+		// 存储到ticker数据映射
+		m.tickerDataMap.Store(symbol, price)
+		
+		// 调试日志
+		log.Printf("🔍 [DEBUG] Ticker %s 实时价格更新: %.6f", symbol, price)
 	}
 }
 
@@ -286,38 +348,7 @@ func (m *WSMonitor) GetCurrentKlines(symbol, timeFrame string) ([]Kline, error) 
 		}
 	}
 	
-	// 如果没有3m数据，尝试动态订阅
-	if timeFrame == "3m" {
-		log.Printf("动态订阅 %s %s K线数据", symbol, timeFrame)
-		
-		// 创建单独的WebSocket客户端进行动态订阅
-		wsClient := NewWSClient()
-		err := wsClient.Connect()
-		if err != nil {
-			log.Printf("动态订阅连接失败: %v", err)
-		} else {
-			// 订阅特定交易对和时间周期
-			err = wsClient.SubscribeKline(symbol, timeFrame)
-			if err != nil {
-				log.Printf("动态订阅失败: %v", err)
-			} else {
-				// 等待一下让数据到达
-				time.Sleep(200 * time.Millisecond)
-				// 再次检查数据
-				if dataMap, exists := m.klineDataMap[timeFrame]; exists {
-					if klines, ok := dataMap.Load(symbol); ok {
-						if klineList, ok := klines.([]Kline); ok && len(klineList) > 0 {
-							wsClient.Close()
-							return klineList, nil
-						}
-					}
-				}
-			}
-			wsClient.Close()
-		}
-	}
-	
-	// 如果WebSocket数据不可用，回退到API
+	// 不再进行动态订阅，直接回退到API，避免重复订阅问题
 	log.Printf("WebSocket数据不可用，使用API获取 %s %s 数据", symbol, timeFrame)
 	apiClient := NewAPIClient()
 	klines, err := apiClient.GetKlines(symbol, timeFrame, 200)
@@ -340,7 +371,7 @@ func (m *WSMonitor) Close() {
 
 // 订阅K线流
 func (m *WSMonitor) subscribeToStreams() error {
-	// 只订阅3m时间周期以减少WebSocket负载
+	// 订阅3m时间周期K线流
 	timeFrame := "3m"
 	
 	log.Printf("订阅 %d 个交易对的 %s K线流", len(m.symbols), timeFrame)
@@ -352,5 +383,17 @@ func (m *WSMonitor) subscribeToStreams() error {
 	}
 	
 	log.Printf("成功订阅 %d 个交易对的 %s K线流", len(m.symbols), timeFrame)
+	
+	// 订阅ticker流以获取实时价格更新
+	log.Printf("订阅 %d 个交易对的 ticker 流", len(m.symbols))
+	
+	err = m.combinedClient.BatchSubscribeTickers(m.symbols)
+	if err != nil {
+		log.Printf("⚠️ 批量订阅 ticker 失败: %v", err)
+		// 不致命，继续运行
+	} else {
+		log.Printf("成功订阅 %d 个交易对的 ticker 流", len(m.symbols))
+	}
+	
 	return nil
 }
